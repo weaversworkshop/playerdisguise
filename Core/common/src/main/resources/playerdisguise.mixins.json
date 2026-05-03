@@ -3,7 +3,11 @@
   "minVersion": "0.8",
   "package": "com.weaversworkshop.playerdisguise.mixin",
   "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PlayerListMixin"
+  ],
   "client": [
+    "client.ClientSuggestionProviderMixin",
     "client.PlayerInfoMixin",
     "client.PlayerMixin"
   ],

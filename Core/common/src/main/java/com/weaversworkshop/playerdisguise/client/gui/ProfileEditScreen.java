@@ -1,12 +1,11 @@
 package com.weaversworkshop.playerdisguise.client.gui;
 
 import com.weaversworkshop.playerdisguise.PlayerDisguise;
-import net.minecraft.Util;
 import com.weaversworkshop.playerdisguise.client.PlayerDisguiseClient;
 import com.weaversworkshop.playerdisguise.client.skin.SkinLibrary;
-import com.weaversworkshop.playerdisguise.config.ConfigStore;
-import com.weaversworkshop.playerdisguise.config.PseudonymConfig;
+import com.weaversworkshop.playerdisguise.config.Profile;
 import net.minecraft.ChatFormatting;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -19,37 +18,37 @@ import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
-public class PseudonymEditScreen extends Screen {
+public class ProfileEditScreen extends Screen {
     private static final Pattern NAME_RE = Pattern.compile("^[A-Za-z0-9_]{3,16}$");
-    private static final Component TITLE = Component.literal("Pseudonym & Skin");
 
     private final @Nullable Screen parent;
+    private final @Nullable Profile initial;
+    private final Consumer<Profile> onSave;
     private final SkinLibrary library;
 
     private EditBox nameField;
     private SkinListWidget list;
     private PlayerSkinWidget skinWidget;
     private Button saveBtn;
-    private Button clearBtn;
 
     private @Nullable SkinLibrary.Entry.Valid stagedSkinEntry;
     private @Nullable PlayerSkin stagedSkin;
     private final PlayerSkin fallbackSkin = DefaultPlayerSkin.get(UUID.randomUUID());
     private @Nullable String errorMsg;
 
-    public PseudonymEditScreen(@Nullable Screen parent) {
-        super(TITLE);
+    public ProfileEditScreen(@Nullable Screen parent, @Nullable Profile initial, Consumer<Profile> onSave) {
+        super(Component.literal(initial == null ? "New Profile" : "Edit Profile"));
         this.parent = parent;
+        this.initial = initial;
+        this.onSave = onSave;
         this.library = new SkinLibrary(PlayerDisguiseClient.config().skinsDir());
     }
 
     @Override
     protected void init() {
-        ConfigStore store = PlayerDisguiseClient.config();
-        PseudonymConfig cfg = store.current();
-
         library.refresh();
 
         int margin = 12;
@@ -67,17 +66,12 @@ public class PseudonymEditScreen extends Screen {
 
         nameField = new EditBox(this.font, rightX, topY, rightW, 20, Component.literal("Name"));
         nameField.setMaxLength(16);
-        if (cfg.hasPseudonym()) nameField.setValue(cfg.pseudonymName());
+        if (initial != null) nameField.setValue(initial.name());
         nameField.setResponder(s -> revalidate());
         addRenderableWidget(nameField);
 
         skinWidget = new PlayerSkinWidget(80, 110, this.minecraft.getEntityModels(),
-                () -> {
-                    if (stagedSkin != null) return stagedSkin;
-                    var p = Minecraft.getInstance().player;
-                    if (p != null) return p.getSkin();
-                    return fallbackSkin;
-                });
+                () -> stagedSkin != null ? stagedSkin : fallbackSkin);
         skinWidget.setX(rightX + (rightW - 80) / 2);
         skinWidget.setY(topY + 30);
         addRenderableWidget(skinWidget);
@@ -85,27 +79,25 @@ public class PseudonymEditScreen extends Screen {
         int btnY = this.height - bottomBarH;
         int gap = 4;
         int avail = this.width - 2 * margin;
-        int btnW = Math.max(50, (avail - 4 * gap) / 5);
+        int btnW = Math.max(50, (avail - 3 * gap) / 4);
         int x0 = margin;
         Button openFolder = Button.builder(Component.literal("Open Folder"), b -> openSkinsFolder())
                 .bounds(x0, btnY, btnW, 20).build();
         Button refresh = Button.builder(Component.literal("Refresh"), b -> refreshList())
                 .bounds(x0 + (btnW + gap), btnY, btnW, 20).build();
-        clearBtn = Button.builder(Component.literal("Clear"), b -> clearSelection())
-                .bounds(x0 + 2 * (btnW + gap), btnY, btnW, 20).build();
         saveBtn = Button.builder(Component.literal("Save"), b -> save())
-                .bounds(x0 + 3 * (btnW + gap), btnY, btnW, 20).build();
+                .bounds(x0 + 2 * (btnW + gap), btnY, btnW, 20).build();
         Button cancel = Button.builder(Component.literal("Cancel"), b -> onClose())
-                .bounds(x0 + 4 * (btnW + gap), btnY, btnW, 20).build();
+                .bounds(x0 + 3 * (btnW + gap), btnY, btnW, 20).build();
         addRenderableWidget(openFolder);
         addRenderableWidget(refresh);
-        addRenderableWidget(clearBtn);
         addRenderableWidget(saveBtn);
         addRenderableWidget(cancel);
 
-        list.setEntries(library.entries(), cfg.skinFileName());
-        if (cfg.hasSkin()) {
-            SkinLibrary.Entry.Valid v = library.findByFilename(cfg.skinFileName());
+        String startSel = initial != null ? initial.skinFileName() : null;
+        list.setEntries(library.entries(), startSel);
+        if (startSel != null) {
+            SkinLibrary.Entry.Valid v = library.findByFilename(startSel);
             if (v != null) acceptEntry(v);
         }
         revalidate();
@@ -133,13 +125,6 @@ public class PseudonymEditScreen extends Screen {
         }
     }
 
-    private void clearSelection() {
-        stagedSkinEntry = null;
-        stagedSkin = null;
-        list.setSelected(null);
-        revalidate();
-    }
-
     private void refreshList() {
         library.refresh();
         String selected = stagedSkinEntry != null ? stagedSkinEntry.filename() : null;
@@ -160,7 +145,7 @@ public class PseudonymEditScreen extends Screen {
 
     private void revalidate() {
         String n = nameField.getValue();
-        boolean nameOk = n.isEmpty() || NAME_RE.matcher(n).matches();
+        boolean nameOk = NAME_RE.matcher(n).matches();
         if (!nameOk) {
             errorMsg = "Name must be 3–16 chars, letters/digits/underscore only.";
         } else if (errorMsg != null && errorMsg.startsWith("Name must")) {
@@ -170,18 +155,11 @@ public class PseudonymEditScreen extends Screen {
     }
 
     private void save() {
-        ConfigStore store = PlayerDisguiseClient.config();
-        String n = nameField.getValue();
-        String name = n.isEmpty() ? null : n;
+        String name = nameField.getValue();
         String filename = stagedSkinEntry != null ? stagedSkinEntry.filename() : null;
         String hash = stagedSkinEntry != null ? stagedSkinEntry.sha256() : null;
-        try {
-            store.save(new PseudonymConfig(name, filename, hash));
-            onClose();
-        } catch (Exception e) {
-            errorMsg = "Save failed: " + e.getMessage();
-            PlayerDisguise.LOGGER.warn(errorMsg, e);
-        }
+        onSave.accept(new Profile(name, filename, hash));
+        onClose();
     }
 
     @Override

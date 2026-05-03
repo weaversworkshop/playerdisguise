@@ -6,7 +6,8 @@ import com.weaversworkshop.playerdisguise.client.PlayerDisguiseClient;
 import com.weaversworkshop.playerdisguise.client.skin.SkinLibrary;
 import com.weaversworkshop.playerdisguise.client.skin.SkinTextureCache;
 import com.weaversworkshop.playerdisguise.config.ConfigStore;
-import com.weaversworkshop.playerdisguise.config.PseudonymConfig;
+import com.weaversworkshop.playerdisguise.config.Profile;
+import com.weaversworkshop.playerdisguise.config.ProfileBook;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.resources.PlayerSkin;
@@ -28,28 +29,24 @@ public final class LocalDisguiseHook {
         if (p == null) return;
 
         ConfigStore store = PlayerDisguiseClient.config();
-        PseudonymConfig cfg = store.current();
-        if (!cfg.hasPseudonym() && !cfg.hasSkin()) return;
+        ProfileBook book = store.book();
+        if (book.isRealActive()) return;
 
+        Profile active = book.activeStored();
         PlayerSkin skin = null;
-        if (cfg.hasSkin()) {
+        if (active.hasSkin()) {
             try {
                 SkinLibrary lib = new SkinLibrary(store.skinsDir());
                 lib.refresh();
-                SkinLibrary.Entry.Valid v = lib.findByFilename(cfg.skinFileName());
+                SkinLibrary.Entry.Valid v = lib.findByFilename(active.skinFileName());
                 if (v != null) skin = SkinTextureCache.getOrRegister(v.bytes(), v.sha256());
-                else PlayerDisguise.LOGGER.warn("Configured skin '{}' not found in skins folder", cfg.skinFileName());
+                else PlayerDisguise.LOGGER.warn("Active profile '{}' references missing skin '{}'", active.name(), active.skinFileName());
             } catch (Exception e) {
                 PlayerDisguise.LOGGER.warn("Failed to register local skin disguise", e);
             }
         }
-        ClientDisguiseRegistry.put(
-                p.getUUID(),
-                cfg.hasPseudonym() ? cfg.pseudonymName() : null,
-                skin
-        );
-        PlayerDisguise.LOGGER.info("Applied local disguise: name={}, skinFile={}",
-                cfg.pseudonymName(), cfg.skinFileName());
+        ClientDisguiseRegistry.put(p.getUUID(), active.name(), skin);
+        PlayerDisguise.LOGGER.info("Applied local disguise: profile='{}', skinFile={}", active.name(), active.skinFileName());
     }
 
     @SubscribeEvent

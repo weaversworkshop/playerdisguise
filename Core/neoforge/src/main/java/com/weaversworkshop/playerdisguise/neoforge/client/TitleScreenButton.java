@@ -1,7 +1,7 @@
 package com.weaversworkshop.playerdisguise.neoforge.client;
 
 import com.weaversworkshop.playerdisguise.PlayerDisguise;
-import com.weaversworkshop.playerdisguise.client.gui.PseudonymEditScreen;
+import com.weaversworkshop.playerdisguise.client.gui.PseudonymCarouselScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -20,7 +20,7 @@ public final class TitleScreenButton {
         if (!(event.getScreen() instanceof TitleScreen ts)) return;
         Button btn = Button.builder(
                 Component.literal("Pseudonym…"),
-                b -> Minecraft.getInstance().setScreen(new PseudonymEditScreen(ts))
+                b -> Minecraft.getInstance().setScreen(new PseudonymCarouselScreen(ts))
         ).bounds(ts.width - 105, 5, 100, 20).build();
         event.addListener(btn);
     }

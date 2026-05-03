@@ -14,8 +14,17 @@ import java.util.Map;
 
 public final class SkinTextureCache {
     private static final Map<String, PlayerSkin> CACHE = new HashMap<>();
+    private static PlayerSkin MISSING;
 
     private SkinTextureCache() {}
+
+    public static PlayerSkin missing() {
+        if (MISSING != null) return MISSING;
+        ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
+                PlayerDisguise.MODID, "textures/entity/player/missing.png");
+        MISSING = new PlayerSkin(rl, null, null, null, PlayerSkin.Model.WIDE, true);
+        return MISSING;
+    }
 
     public static PlayerSkin getOrRegister(byte[] bytes, String hash) throws IOException {
         PlayerSkin cached = CACHE.get(hash);

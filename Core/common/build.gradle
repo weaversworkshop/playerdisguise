@@ -1,0 +1,58 @@
+plugins {
+    id 'fabric-loom' version '1.14-SNAPSHOT'
+}
+
+base {
+    archivesName = "${project.archives_base_name}-common"
+}
+group = project.maven_group
+
+String modVer = project.properties["mod_version"] ?: "indev"
+version = "%s+%s".formatted(modVer, project.properties["minecraft_version"])
+
+loom {
+    accessWidenerPath = file("src/main/resources/playerdisguise.accesswidener")
+}
+
+repositories {
+    maven {
+        name = 'ParchmentMC'
+        url = "https://maven.parchmentmc.org/"
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.layered() {
+        officialMojangMappings()
+        if (project.parchment_version != "") {
+            parchment("org.parchmentmc.data:${project.parchment_version}@zip")
+        }
+    }
+
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filteringCharset "UTF-8"
+}
+
+def targetJavaVersion = 21
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    it.options.release.set(targetJavaVersion)
+    if (project.properties["show_dev_warnings"] == "true") {
+        it.options.deprecation = true
+        it.options.compilerArgs << '-Xlint:unchecked'
+    }
+}
+
+java {
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    if (JavaVersion.current() < javaVersion) {
+        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    }
+    withSourcesJar()
+}

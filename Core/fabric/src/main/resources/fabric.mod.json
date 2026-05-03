@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${version}",
+  "name": "Player Disguise",
+  "description": "Disguise yourself as other players.",
+  "authors": [ "Weaver's Workshop" ],
+  "license": "All Rights Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main":   [ "com.weaversworkshop.playerdisguise.fabric.PlayerDisguiseFabric" ],
+    "client": [ "com.weaversworkshop.playerdisguise.fabric.PlayerDisguiseClientFabric" ]
+  },
+  "accessWidener": "playerdisguise.accesswidener",
+  "jars": [ $compatibility_jars ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version_support_range}"
+  }
+}

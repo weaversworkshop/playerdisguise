@@ -1,0 +1,7 @@
+subprojects {
+    plugins.withType(JavaPlugin).configureEach {
+        repositories {
+            mavenCentral()
+        }
+    }
+}

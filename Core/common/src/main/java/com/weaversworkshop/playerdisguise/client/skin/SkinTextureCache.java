@@ -13,10 +13,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class SkinTextureCache {
-    private static final Map<String, PlayerSkin> CACHE = new HashMap<>();
+    private static final Map<String, ResourceLocation> TEXTURE_BY_HASH = new HashMap<>();
+    private static final Map<String, PlayerSkin> SKIN_BY_KEY = new HashMap<>();
     private static PlayerSkin MISSING;
 
     private SkinTextureCache() {}
+
+    private static String key(String hash, PlayerSkin.Model model) {
+        return hash + ":" + (model == PlayerSkin.Model.SLIM ? "slim" : "wide");
+    }
 
     public static PlayerSkin missing() {
         if (MISSING != null) return MISSING;
@@ -26,23 +31,24 @@ public final class SkinTextureCache {
         return MISSING;
     }
 
-    public static PlayerSkin getOrRegister(byte[] bytes, String hash) throws IOException {
-        PlayerSkin cached = CACHE.get(hash);
+    public static PlayerSkin getOrRegister(byte[] bytes, String hash, PlayerSkin.Model model) throws IOException {
+        String k = key(hash, model);
+        PlayerSkin cached = SKIN_BY_KEY.get(k);
         if (cached != null) return cached;
 
-        NativeImage img;
-        try (ByteArrayInputStream in = new ByteArrayInputStream(bytes)) {
-            img = NativeImage.read(in);
+        ResourceLocation rl = TEXTURE_BY_HASH.get(hash);
+        if (rl == null) {
+            NativeImage img;
+            try (ByteArrayInputStream in = new ByteArrayInputStream(bytes)) {
+                img = NativeImage.read(in);
+            }
+            DynamicTexture tex = new DynamicTexture(img);
+            rl = ResourceLocation.fromNamespaceAndPath(PlayerDisguise.MODID, "skin/" + hash);
+            Minecraft.getInstance().getTextureManager().register(rl, tex);
+            TEXTURE_BY_HASH.put(hash, rl);
         }
-        DynamicTexture tex = new DynamicTexture(img);
-        ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(PlayerDisguise.MODID, "skin/" + hash);
-        Minecraft.getInstance().getTextureManager().register(rl, tex);
-        PlayerSkin skin = new PlayerSkin(rl, null, null, null, PlayerSkin.Model.WIDE, true);
-        CACHE.put(hash, skin);
+        PlayerSkin skin = new PlayerSkin(rl, null, null, null, model, true);
+        SKIN_BY_KEY.put(k, skin);
         return skin;
-    }
-
-    public static PlayerSkin get(String hash) {
-        return CACHE.get(hash);
     }
 }

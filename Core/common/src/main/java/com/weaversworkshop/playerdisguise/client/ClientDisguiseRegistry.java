@@ -36,6 +36,12 @@ public final class ClientDisguiseRegistry {
         return e == null ? null : e.name;
     }
 
+    public static void updateSkin(UUID uuid, PlayerSkin skin) {
+        Entry cur = ENTRIES.get(uuid);
+        if (cur == null) ENTRIES.put(uuid, new Entry(null, skin));
+        else ENTRIES.put(uuid, new Entry(cur.name(), skin));
+    }
+
     public static PlayerSkin skin(UUID uuid) {
         Entry e = ENTRIES.get(uuid);
         return e == null ? null : e.skin;

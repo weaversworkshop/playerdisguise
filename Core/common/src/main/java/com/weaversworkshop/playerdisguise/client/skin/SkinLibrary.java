@@ -76,7 +76,7 @@ public final class SkinLibrary {
         return null;
     }
 
-    public PlayerSkin loadAsSkin(Entry.Valid v) throws IOException {
-        return SkinTextureCache.getOrRegister(v.bytes(), v.sha256());
+    public PlayerSkin loadAsSkin(Entry.Valid v, PlayerSkin.Model model) throws IOException {
+        return SkinTextureCache.getOrRegister(v.bytes(), v.sha256(), model);
     }
 }

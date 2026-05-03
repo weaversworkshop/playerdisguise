@@ -13,6 +13,8 @@ public final class PlayerDisguiseClient {
     public static void init(Path modConfigDir) {
         CONFIG = new ConfigStore(modConfigDir);
         CONFIG.load();
+        com.weaversworkshop.playerdisguise.client.skin.ClientSkinCache.get()
+                .setDir(modConfigDir.resolve("cache"));
         PlayerDisguise.LOGGER.info("PlayerDisguise client config loaded from {}", modConfigDir);
     }
 

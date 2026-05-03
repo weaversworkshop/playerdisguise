@@ -36,6 +36,9 @@ public class ProfileEditScreen extends Screen {
 
     private @Nullable SkinLibrary.Entry.Valid stagedSkinEntry;
     private @Nullable PlayerSkin stagedSkin;
+    private PlayerSkin.Model stagedModel = PlayerSkin.Model.WIDE;
+    private Button modelWideBtn;
+    private Button modelSlimBtn;
     private final PlayerSkin fallbackSkin = DefaultPlayerSkin.get(UUID.randomUUID());
     private @Nullable String errorMsg;
 
@@ -70,11 +73,23 @@ public class ProfileEditScreen extends Screen {
         nameField.setResponder(s -> revalidate());
         addRenderableWidget(nameField);
 
+        if (initial != null) stagedModel = initial.resolvedModel();
+
         skinWidget = new PlayerSkinWidget(80, 110, this.minecraft.getEntityModels(),
                 () -> stagedSkin != null ? stagedSkin : fallbackSkin);
         skinWidget.setX(rightX + (rightW - 80) / 2);
         skinWidget.setY(topY + 30);
         addRenderableWidget(skinWidget);
+
+        int toggleY = topY + 30 + 110 + 6;
+        int halfW = Math.max(40, (rightW - 4) / 2);
+        modelWideBtn = Button.builder(Component.literal("Wide"), b -> setModel(PlayerSkin.Model.WIDE))
+                .bounds(rightX, toggleY, halfW, 20).build();
+        modelSlimBtn = Button.builder(Component.literal("Slim"), b -> setModel(PlayerSkin.Model.SLIM))
+                .bounds(rightX + halfW + 4, toggleY, halfW, 20).build();
+        addRenderableWidget(modelWideBtn);
+        addRenderableWidget(modelSlimBtn);
+        updateModelButtons();
 
         int btnY = this.height - bottomBarH;
         int gap = 4;
@@ -116,13 +131,24 @@ public class ProfileEditScreen extends Screen {
 
     private void acceptEntry(SkinLibrary.Entry.Valid v) {
         try {
-            stagedSkin = library.loadAsSkin(v);
+            stagedSkin = library.loadAsSkin(v, stagedModel);
             stagedSkinEntry = v;
             errorMsg = null;
         } catch (Exception ex) {
             errorMsg = "Could not load skin: " + ex.getMessage();
             PlayerDisguise.LOGGER.warn(errorMsg, ex);
         }
+    }
+
+    private void setModel(PlayerSkin.Model m) {
+        stagedModel = m;
+        updateModelButtons();
+        if (stagedSkinEntry != null) acceptEntry(stagedSkinEntry);
+    }
+
+    private void updateModelButtons() {
+        modelWideBtn.active = stagedModel != PlayerSkin.Model.WIDE;
+        modelSlimBtn.active = stagedModel != PlayerSkin.Model.SLIM;
     }
 
     private void refreshList() {
@@ -158,7 +184,8 @@ public class ProfileEditScreen extends Screen {
         String name = nameField.getValue();
         String filename = stagedSkinEntry != null ? stagedSkinEntry.filename() : null;
         String hash = stagedSkinEntry != null ? stagedSkinEntry.sha256() : null;
-        onSave.accept(new Profile(name, filename, hash));
+        String modelId = stagedModel == PlayerSkin.Model.SLIM ? "slim" : "wide";
+        onSave.accept(new Profile(name, filename, hash, modelId));
         onClose();
     }
 

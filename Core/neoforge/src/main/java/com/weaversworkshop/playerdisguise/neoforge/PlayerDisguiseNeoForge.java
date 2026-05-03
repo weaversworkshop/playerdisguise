@@ -15,6 +15,9 @@ public class PlayerDisguiseNeoForge {
         PlayerDisguise.init();
         if (FMLEnvironment.dist == Dist.CLIENT) {
             PlayerDisguiseClient.init(FMLPaths.CONFIGDIR.get().resolve(PlayerDisguise.MODID));
+            com.weaversworkshop.playerdisguise.client.ClientDisguiseHandler.setBlobRequester(
+                    hash -> net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                            new com.weaversworkshop.playerdisguise.net.payload.RequestSkinBlob(hash)));
         }
     }
 }

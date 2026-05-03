@@ -1,6 +1,6 @@
 package com.weaversworkshop.playerdisguise.mixin.client;
 
-import com.weaversworkshop.playerdisguise.server.ServerDisguiseRegistry;
+import com.weaversworkshop.playerdisguise.client.ClientAliasMirror;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.ClientSuggestionProvider;
@@ -22,7 +22,7 @@ public abstract class ClientSuggestionProviderMixin {
         if (conn == null) return;
         List<String> out = new ArrayList<>();
         for (PlayerInfo info : conn.getOnlinePlayers()) {
-            String alias = ServerDisguiseRegistry.pseudonymOf(info.getProfile().getId());
+            String alias = ClientAliasMirror.aliasOf(info.getProfile().getId());
             out.add(alias != null ? alias : info.getProfile().getName());
         }
         cir.setReturnValue(out);

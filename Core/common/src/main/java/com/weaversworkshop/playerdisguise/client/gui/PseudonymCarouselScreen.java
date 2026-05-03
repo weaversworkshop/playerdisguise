@@ -107,7 +107,7 @@ public class PseudonymCarouselScreen extends Screen {
             lib.refresh();
             SkinLibrary.Entry.Valid v = lib.findByFilename(p.skinFileName());
             if (v != null) {
-                PlayerSkin s = SkinTextureCache.getOrRegister(v.bytes(), v.sha256());
+                PlayerSkin s = SkinTextureCache.getOrRegister(v.bytes(), v.sha256(), p.resolvedModel());
                 resolvedSkins.put(p.skinFileName(), s);
                 return s;
             }

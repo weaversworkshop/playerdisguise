@@ -62,7 +62,7 @@ public final class ConfigStore {
                     sanitized.add(p);
                 } else if (r instanceof SkinValidator.Result.Ok ok && !ok.sha256().equals(p.skinHash())) {
                     PlayerDisguise.LOGGER.info("Profile '{}' skin '{}' changed on disk; updating hash.", p.name(), p.skinFileName());
-                    sanitized.add(new Profile(p.name(), p.skinFileName(), ok.sha256()));
+                    sanitized.add(new Profile(p.name(), p.skinFileName(), ok.sha256(), p.skinModel()));
                 } else {
                     sanitized.add(p);
                 }

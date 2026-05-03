@@ -4,6 +4,7 @@
   "package": "com.weaversworkshop.playerdisguise.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "GameProfileCacheMixin",
     "PlayerListMixin",
     "PlayerServerNameMixin"
   ],

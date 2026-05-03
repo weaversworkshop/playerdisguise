@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.weaversworkshop.playerdisguise.mixin.bluemap",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MojangSkinProviderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

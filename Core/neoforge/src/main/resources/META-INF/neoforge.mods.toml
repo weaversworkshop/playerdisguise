@@ -17,6 +17,12 @@ file = "META-INF/accesstransformer.cfg"
 [[mixins]]
 config = "playerdisguise.mixins.json"
 
+[[mixins]]
+config = "playerdisguise.voicechat.mixins.json"
+
+[[mixins]]
+config = "playerdisguise.bluemap.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"

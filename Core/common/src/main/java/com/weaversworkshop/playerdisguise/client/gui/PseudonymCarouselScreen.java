@@ -50,7 +50,7 @@ public class PseudonymCarouselScreen extends Screen {
         PlayerDisguiseClient.config().load();
         this.viewIndex = PlayerDisguiseClient.config().book().activeIndex();
 
-        GameProfile gp = new GameProfile(uid, user.getName());
+        GameProfile gp = mc.getGameProfile();
         mc.getSkinManager().getOrLoad(gp).thenAccept(s -> realSkin = s);
     }
 

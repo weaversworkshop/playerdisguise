@@ -23,6 +23,9 @@ config = "playerdisguise.voicechat.mixins.json"
 [[mixins]]
 config = "playerdisguise.bluemap.mixins.json"
 
+[[mixins]]
+config = "playerdisguise.journeymap.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"

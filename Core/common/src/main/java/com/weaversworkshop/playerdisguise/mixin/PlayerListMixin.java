@@ -16,7 +16,14 @@ public abstract class PlayerListMixin {
 
     @Inject(method = "getPlayerByName", at = @At("RETURN"), cancellable = true)
     private void playerdisguise$lookupByPseudonym(String username, CallbackInfoReturnable<ServerPlayer> cir) {
-        if (cir.getReturnValue() != null) return;
+        ServerPlayer found = cir.getReturnValue();
+        if (found != null) {
+            if (AliasRegistry.get().isDisguised(found.getUUID())
+                    && !username.equalsIgnoreCase(AliasRegistry.get().pseudonymOf(found.getUUID()))) {
+                cir.setReturnValue(null);
+            }
+            return;
+        }
         UUID uuid = AliasRegistry.get().uuidOf(username);
         if (uuid == null) return;
         PlayerList self = (PlayerList) (Object) this;

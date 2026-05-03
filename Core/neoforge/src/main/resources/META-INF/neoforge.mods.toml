@@ -14,6 +14,9 @@ Disguise yourself as other players.
 [[accessTransformers]]
 file = "META-INF/accesstransformer.cfg"
 
+[[mixins]]
+config = "playerdisguise.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId = "neoforge"
 type = "required"

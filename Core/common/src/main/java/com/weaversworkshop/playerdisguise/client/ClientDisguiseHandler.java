@@ -22,6 +22,10 @@ public final class ClientDisguiseHandler {
 
     public static void setBlobRequester(Consumer<String> requester) { blobRequester = requester; }
 
+    public static void requestBlob(String hash) {
+        if (hash != null && !hash.isBlank()) blobRequester.accept(hash);
+    }
+
     public static void applyDisguise(UUID uuid, String pseudonym, String hash, String modelId) {
         ClientAliasMirror.put(uuid, pseudonym);
         ClientDisguiseRegistry.put(uuid, (pseudonym == null || pseudonym.isBlank()) ? null : pseudonym, null);

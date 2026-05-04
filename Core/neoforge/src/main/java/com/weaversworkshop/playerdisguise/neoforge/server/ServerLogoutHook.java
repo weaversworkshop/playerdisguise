@@ -1,7 +1,6 @@
 package com.weaversworkshop.playerdisguise.neoforge.server;
 
 import com.weaversworkshop.playerdisguise.PlayerDisguise;
-import com.weaversworkshop.playerdisguise.neoforge.network.PdNetworkSetup;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
 import com.weaversworkshop.playerdisguise.server.ServerDisguiseState;
 import net.minecraft.server.level.ServerPlayer;
@@ -18,6 +17,8 @@ public final class ServerLogoutHook {
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
         AliasRegistry.get().release(sp.getUUID());
         ServerDisguiseState.get().clearSkin(sp.getUUID());
-        PdNetworkSetup.broadcastUpdate(sp.server, sp.getUUID(), "", "", "");
+        // Intentionally do NOT broadcast a clear: other clients may still be
+        // rendering chat history / lingering references to this player's
+        // disguised identity. Connection end clears the client registry wholesale.
     }
 }

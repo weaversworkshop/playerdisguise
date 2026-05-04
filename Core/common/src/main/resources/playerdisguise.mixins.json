@@ -12,7 +12,8 @@
   "client": [
     "client.ClientSuggestionProviderMixin",
     "client.PlayerInfoMixin",
-    "client.PlayerMixin"
+    "client.PlayerMixin",
+    "client.SkullBlockRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

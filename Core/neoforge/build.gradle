@@ -19,6 +19,16 @@ sourceSets {
     }
 }
 
+configurations {
+    devRuntimeMods
+}
+
+dependencies {
+    // Dev-only mods loaded into run/* for testing. Not shipped.
+    devRuntimeMods files('libs/chat_heads-0.15.1-neoforge-1.21.jar')
+    compileOnly files('libs/chat_heads-0.15.1-neoforge-1.21.jar')
+}
+
 neoForge {
     version = project.neoforge_version
 
@@ -62,6 +72,9 @@ repositories {
         name = 'ParchmentMC'
         url = 'https://maven.parchmentmc.org/'
     }
+    flatDir {
+        dirs 'libs'
+    }
 }
 
 processResources {
@@ -94,4 +107,22 @@ java {
 
 jar {
     archiveClassifier = "release"
+}
+
+// Copy dev-only mods (chat_heads, etc.) into each run's mods/ folder so FML loads them.
+def devRunDirs = ['run/client', 'run/client2', 'run/server']
+def copyDevRuntimeMods = tasks.register('copyDevRuntimeMods') {
+    inputs.files configurations.devRuntimeMods
+    devRunDirs.each { dir -> outputs.dir("$dir/mods") }
+    doLast {
+        devRunDirs.each { dir ->
+            copy {
+                from configurations.devRuntimeMods
+                into "$dir/mods"
+            }
+        }
+    }
+}
+tasks.matching { it.name in ['runClient', 'runClient2', 'runServer'] }.configureEach {
+    dependsOn copyDevRuntimeMods
 }

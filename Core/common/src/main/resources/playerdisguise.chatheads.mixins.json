@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.weaversworkshop.playerdisguise.mixin.client.chatheads",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "com.weaversworkshop.playerdisguise.mixinplugin.ChatHeadsMixinPlugin",
+  "client": [
+    "GuiMessageMixin",
+    "GuiMessageLineMixin",
+    "ChatComponentMixin",
+    "ChatHeadsMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

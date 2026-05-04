@@ -39,6 +39,8 @@ public final class ServerLoginHook {
             String hash = sk == null ? "" : sk.hash();
             String model = sk == null ? "" : sk.model();
             PdNetworkSetup.broadcastUpdate(joining.server, joining.getUUID(), alias, hash, model);
+        } else {
+            PdNetworkSetup.broadcastUpdate(joining.server, joining.getUUID(), "", "", "");
         }
     }
 }

@@ -6,6 +6,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.weaversworkshop.playerdisguise.PlayerDisguise;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry.NameInterval;
+import com.weaversworkshop.playerdisguise.server.LookupFormatter;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -57,29 +58,23 @@ public final class PdCommands {
         MinecraftServer server = source.getServer();
         int runnerOp = opLevelOfRunner(source);
 
-        Map<UUID, List<NameInterval>> holders = reg.holdersOfAlias(name);
-
-        // Gather rows, suppressing rows where runnerOp < holderOp (silent omission).
-        List<MutableComponent> rows = new java.util.ArrayList<>();
-
-        for (var entry : holders.entrySet()) {
-            UUID holder = entry.getKey();
-            int targetOp = opLevelOfUuid(server, holder);
-            if (runnerOp < targetOp) continue;
-            String realName = reg.realNameOf(holder);
-            for (NameInterval ni : entry.getValue()) {
-                rows.add(rowAlias(realName == null ? holder.toString().substring(0, 8) : realName, ni));
-            }
-        }
+        LookupFormatter.WhoisResult result = LookupFormatter.whois(
+                reg.holdersOfAlias(name),
+                runnerOp,
+                uuid -> opLevelOfUuid(server, uuid),
+                reg::realNameOf);
 
         sendHeader(source, "/whois", name);
-        if (rows.isEmpty()) {
+        if (result.isEmpty()) {
             source.sendSuccess(() -> Component.literal("  (no holders)").withStyle(ChatFormatting.GRAY), false);
             return 0;
         }
         sendColumnHeader(source, "Player", "Held from", "Held until");
-        for (MutableComponent row : rows) source.sendSuccess(() -> row, false);
-        return rows.size();
+        for (LookupFormatter.WhoisRow r : result.rows()) {
+            MutableComponent row = rowAlias(r.displayName(), r.interval());
+            source.sendSuccess(() -> row, false);
+        }
+        return result.rows().size();
     }
 
     // ---- /namehistory ----------------------------------------------------------
@@ -95,39 +90,30 @@ public final class PdCommands {
             return 0;
         }
 
-        int targetOp = opLevelOfUuid(server, target);
-        String realName = reg.realNameOf(target);
-        if (realName == null) realName = name;
+        LookupFormatter.NameHistoryResult result = LookupFormatter.nameHistory(
+                target,
+                runnerOp,
+                uuid -> opLevelOfUuid(server, uuid),
+                reg::realNameOf,
+                reg::pseudonymOf,
+                reg::historyOf,
+                name);
 
-        // Op-rank lie: pretend current alias is the real name, empty history.
-        if (runnerOp < targetOp) {
-            String currentAlias = reg.pseudonymOf(target);
-            String shownReal = currentAlias != null ? currentAlias : realName;
-            sendHeader(source, "/namehistory", name);
-            String finalShownReal = shownReal;
-            source.sendSuccess(() -> Component.literal("  Real name: ")
-                    .withStyle(ChatFormatting.GRAY)
-                    .append(Component.literal(finalShownReal).withStyle(ChatFormatting.WHITE)), false);
-            source.sendSuccess(() -> Component.literal("  (no aliases on record)").withStyle(ChatFormatting.GRAY), false);
-            return 0;
-        }
-
-        List<NameInterval> history = reg.historyOf(target);
         sendHeader(source, "/namehistory", name);
-        String finalRealName = realName;
+        String shownReal = result.shownRealName();
         source.sendSuccess(() -> Component.literal("  Real name: ")
                 .withStyle(ChatFormatting.GRAY)
-                .append(Component.literal(finalRealName).withStyle(ChatFormatting.WHITE)), false);
-        if (history.isEmpty()) {
+                .append(Component.literal(shownReal).withStyle(ChatFormatting.WHITE)), false);
+        if (!result.hasHistory()) {
             source.sendSuccess(() -> Component.literal("  (no aliases on record)").withStyle(ChatFormatting.GRAY), false);
             return 0;
         }
         sendColumnHeader(source, "Alias", "Held from", "Held until");
-        for (NameInterval ni : history) {
+        for (NameInterval ni : result.rows()) {
             MutableComponent row = rowAliasOnly(ni);
             source.sendSuccess(() -> row, false);
         }
-        return history.size();
+        return result.rows().size();
     }
 
     // ---- Row builders ----------------------------------------------------------

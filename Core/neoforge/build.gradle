@@ -27,6 +27,14 @@ dependencies {
     // Dev-only mods loaded into run/* for testing. Not shipped.
     devRuntimeMods files('libs/chat_heads-0.15.1-neoforge-1.21.jar')
     compileOnly files('libs/chat_heads-0.15.1-neoforge-1.21.jar')
+
+    // Pure-logic tests don't load the full NeoForge/Minecraft runtime — pin the transitive libs that
+    // production code touches (gson, slf4j, mojang LogUtils, jetbrains annotations) directly so the
+    // test JVM has them on its classpath. JUnit + testLogging come from the root build.gradle.
+    testImplementation "com.google.code.gson:gson:2.10.1"
+    testImplementation "org.slf4j:slf4j-simple:2.0.13"
+    testImplementation "com.mojang:logging:1.2.7"
+    testImplementation "org.jetbrains:annotations:24.1.0"
 }
 
 neoForge {

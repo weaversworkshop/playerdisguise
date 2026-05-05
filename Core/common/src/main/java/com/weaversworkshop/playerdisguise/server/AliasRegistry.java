@@ -18,6 +18,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 public final class AliasRegistry {
     public static final long DEFAULT_COOLDOWN_MS = 60L * 60L * 1000L; // 1 hour
@@ -65,10 +66,16 @@ public final class AliasRegistry {
     private final Map<UUID, List<NameInterval>> historyByUuid = new ConcurrentHashMap<>();
 
     private long cooldownMs = DEFAULT_COOLDOWN_MS;
+    private LongSupplier clock = System::currentTimeMillis;
 
     private AliasRegistry() {}
 
     public synchronized void setCooldownMs(long ms) { this.cooldownMs = ms; }
+
+    /** Test-only: inject a virtual clock so unit tests can advance time across the SHORT_INTERVAL_DROP window. */
+    synchronized void setClockForTesting(LongSupplier supplier) {
+        this.clock = supplier == null ? System::currentTimeMillis : supplier;
+    }
 
     public @Nullable String pseudonymOf(UUID uuid) {
         return activeByUuid.get(uuid);
@@ -112,7 +119,7 @@ public final class AliasRegistry {
         UUID otherCool = cooldownByAliasLc.get(lc);
         if (otherCool != null && !otherCool.equals(uuid)) {
             CooldownEntry e = cooldownByUuid.get(otherCool);
-            if (e != null && e.expiryMs > System.currentTimeMillis()) return ClaimResult.REJECTED_COOLDOWN_OTHER;
+            if (e != null && e.expiryMs > clock.getAsLong()) return ClaimResult.REJECTED_COOLDOWN_OTHER;
             cooldownByUuid.remove(otherCool);
             cooldownByAliasLc.remove(lc);
         }
@@ -159,7 +166,7 @@ public final class AliasRegistry {
     }
 
     public synchronized int pruneExpired() {
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         int n = 0;
         var it = cooldownByUuid.entrySet().iterator();
         while (it.hasNext()) {
@@ -239,7 +246,7 @@ public final class AliasRegistry {
         if (realName != null) openInterval(uuid, realName, true);
         CooldownEntry prior = cooldownByUuid.remove(uuid);
         if (prior != null) cooldownByAliasLc.remove(prior.alias.toLowerCase(Locale.ROOT));
-        long expiry = System.currentTimeMillis() + cooldownMs;
+        long expiry = clock.getAsLong() + cooldownMs;
         // Carry the just-released skin into the cooldown entry so its blob survives orphan GC during
         // the cooldown window — a quick rejoin can resume without re-uploading.
         cooldownByUuid.put(uuid, new CooldownEntry(alias, expiry, skin));
@@ -252,7 +259,7 @@ public final class AliasRegistry {
         for (int i = list.size() - 1; i >= 0; i--) {
             if (list.get(i).isOpen()) return; // something already open — don't stack
         }
-        list.add(new NameInterval(alias, System.currentTimeMillis(), 0L, realName));
+        list.add(new NameInterval(alias, clock.getAsLong(), 0L, realName));
     }
 
     /**
@@ -264,7 +271,7 @@ public final class AliasRegistry {
     private void closeOpenInterval(UUID uuid) {
         List<NameInterval> list = historyByUuid.get(uuid);
         if (list == null) return;
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         for (int i = list.size() - 1; i >= 0; i--) {
             NameInterval ni = list.get(i);
             if (!ni.isOpen()) continue;
@@ -406,7 +413,7 @@ public final class AliasRegistry {
         if (byReal != null) return byReal;
         UUID best = null;
         long bestEnd = Long.MIN_VALUE;
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         for (var entry : historyByUuid.entrySet()) {
             for (NameInterval ni : entry.getValue()) {
                 if (!ni.alias.toLowerCase(Locale.ROOT).equals(lc)) continue;

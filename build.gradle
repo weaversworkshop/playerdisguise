@@ -3,5 +3,179 @@ subprojects {
         repositories {
             mavenCentral()
         }
+
+        // Wire JUnit 5 + pytest-style terse logging into every subproject that has tests.
+        // Subprojects without src/test/java skip this so they don't pull JUnit they won't use
+        // (and so :Core:common's standalone-uncompileable sources don't pretend to run tests).
+        if (file('src/test/java').exists()) {
+            dependencies {
+                testImplementation platform("org.junit:junit-bom:5.11.4")
+                testImplementation "org.junit.jupiter:junit-jupiter"
+                testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+            }
+
+            tasks.withType(Test).configureEach {
+                useJUnitPlatform()
+                testLogging {
+                    events "failed"
+                    showStandardStreams = false
+                    exceptionFormat = "full"
+                }
+            }
+        }
+    }
+}
+
+def testableSubprojects = { subprojects.findAll { it.file('src/test/java').exists() } }
+
+def testAllTask = tasks.register('testAll') {
+    group = 'verification'
+    description = 'Runs every subproject test task and prints a pytest-style summary at the end.'
+
+    dependsOn testableSubprojects().collect { sub ->
+        sub.tasks.matching { it.name == 'test' }
+    }
+
+    doLast {
+        def rows = []
+        def failures = []
+        int total = 0, passed = 0, failed = 0, skipped = 0
+        long durationMs = 0
+
+        testableSubprojects().each { sub ->
+            File resultsDir = sub.layout.buildDirectory.dir('test-results/test').get().asFile
+            if (!resultsDir.exists()) return
+
+            int sTotal = 0, sFail = 0, sSkip = 0
+            double sTime = 0.0
+            resultsDir.eachFileMatch(~/.*\.xml/) { xml ->
+                def suite = new groovy.xml.XmlSlurper().parse(xml)
+                sTotal += (suite.@tests.text() ?: '0').toInteger()
+                sFail  += (suite.@failures.text() ?: '0').toInteger() + (suite.@errors.text() ?: '0').toInteger()
+                sSkip  += (suite.@skipped.text() ?: '0').toInteger()
+                sTime  += (suite.@time.text() ?: '0').toDouble()
+
+                suite.testcase.each { tc ->
+                    tc.failure.each { f ->
+                        failures << [module: sub.path, classname: tc.@classname.text(), name: tc.@name.text(),
+                                     kind: 'FAILURE', message: f.@message.text(), type: f.@type.text(),
+                                     trace: f.text(), origin: firstUserFrame(f.text(), tc.@classname.text())]
+                    }
+                    tc.error.each { e ->
+                        failures << [module: sub.path, classname: tc.@classname.text(), name: tc.@name.text(),
+                                     kind: 'ERROR', message: e.@message.text(), type: e.@type.text(),
+                                     trace: e.text(), origin: firstUserFrame(e.text(), tc.@classname.text())]
+                    }
+                }
+            }
+            if (sTotal == 0) return
+
+            int sPass = sTotal - sFail - sSkip
+            String status = sFail > 0 ? 'FAIL' : 'PASS'
+            rows << [path: sub.path, status: status, total: sTotal, passed: sPass, failed: sFail, skipped: sSkip, time: sTime]
+
+            total += sTotal; passed += sPass; failed += sFail; skipped += sSkip
+            durationMs += (long) (sTime * 1000)
+        }
+
+        if (!failures.isEmpty()) {
+            println ""
+            println "=" * 78
+            println "FAILURES"
+            println "=" * 78
+            failures.eachWithIndex { f, idx ->
+                println ""
+                println "_" * 78
+                println "[${idx + 1}] ${f.classname} > ${f.name}  (${f.module})"
+                if (f.origin) println "    at ${f.origin}"
+                println ""
+                println "    ${f.kind}: ${f.type}"
+                if (f.message) {
+                    f.message.toString().eachLine { line -> println "      ${line}" }
+                }
+                println ""
+                println "    Stack (user frames first, framework collapsed):"
+                renderTrimmedTrace(f.trace.toString()).each { line -> println "      ${line}" }
+            }
+        }
+
+        println ""
+        println "=" * 78
+        println "TEST SUMMARY"
+        println "=" * 78
+        if (rows.isEmpty()) {
+            println "  No test results found. Run with --rerun-tasks if everything was UP-TO-DATE."
+            println "=" * 78
+            return
+        }
+
+        String fmt = "  %-6s  %-32s  %5s  %6s  %6s  %7s  %8s"
+        println String.format(fmt, "STATUS", "MODULE", "TOTAL", "PASSED", "FAILED", "SKIPPED", "TIME(s)")
+        println "  " + ("-" * 74)
+        rows.each { r ->
+            println String.format(fmt, r.status, r.path, r.total, r.passed, r.failed, r.skipped, String.format("%.3f", r.time))
+        }
+        println "  " + ("-" * 74)
+        println String.format(fmt, (failed > 0 ? 'FAIL' : 'PASS'), 'TOTAL', total, passed, failed, skipped, String.format("%.3f", durationMs / 1000.0))
+        println "=" * 78
+
+        if (failed > 0) {
+            println ""
+            println "Short failure list:"
+            failures.each { f ->
+                String loc = f.origin ?: 'unknown location'
+                println "  ${f.kind}  ${f.classname} > ${f.name}  ->  ${loc}"
+            }
+            println ""
+            throw new GradleException("${failed} test(s) failed across ${rows.count { it.failed > 0 }} module(s).")
+        }
+    }
+}
+
+ext.firstUserFrame = { String trace, String classname ->
+    if (!trace) return null
+    String pkgRoot = classname.contains('.') ? classname.substring(0, classname.indexOf('.')) : classname
+    def matcher = trace =~ /at\s+(?:\S*\/)?(${java.util.regex.Pattern.quote(pkgRoot)}[\w.$]*)\(([^)]+)\)/
+    if (matcher.find()) {
+        return "${matcher.group(1)}(${matcher.group(2)})"
+    }
+    return null
+}
+
+ext.renderTrimmedTrace = { String trace ->
+    if (!trace) return []
+    List<String> userFrames = []
+    int collapsed = 0
+    trace.eachLine { String line ->
+        String t = line.trim()
+        if (t.startsWith('at ')) {
+            // Keep frames from project namespaces; collapse JUnit/JDK framework frames.
+            if (t.contains('com.weaversworkshop.')) {
+                if (collapsed > 0) { userFrames << "... ${collapsed} framework frame(s) ..."; collapsed = 0 }
+                userFrames << t
+            } else {
+                collapsed++
+            }
+        } else if (t.startsWith('Caused by:') || t.startsWith('Suppressed:')) {
+            if (collapsed > 0) { userFrames << "... ${collapsed} framework frame(s) ..."; collapsed = 0 }
+            userFrames << t
+        }
+    }
+    if (collapsed > 0) userFrames << "... ${collapsed} framework frame(s) ..."
+    if (userFrames.isEmpty()) {
+        return trace.readLines().take(8).collect { it.trim() }
+    }
+    return userFrames
+}
+
+// When running testAll, let individual test tasks finish (collect failures across all modules)
+// instead of failing-fast on the first module — the aggregator throws at the end.
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(testAllTask.get())) {
+        testableSubprojects().each { sub ->
+            sub.tasks.matching { it.name == 'test' }.configureEach {
+                ignoreFailures = true
+            }
+        }
     }
 }

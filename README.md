@@ -1,5 +1,7 @@
 # Player Disguise
 
+[![Player Disguise banner](./docs/media/playerdisguise-banner.gif)](https://github.com/weaversworkshop/playerdisguise)
+
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-v1.21.1-blue?style=flat-square)](https://www.minecraft.net/en-us)
 [![NeoForge Version](https://img.shields.io/badge/NeoForge-v21.1.219-orange?style=flat-square)](https://neoforged.net/)
 [![License](https://img.shields.io/badge/License-MPL_2.0-brightgreen?style=flat-square)](./LICENSE)

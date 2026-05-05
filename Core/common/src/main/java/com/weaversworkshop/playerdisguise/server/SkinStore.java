@@ -7,6 +7,8 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
+import java.util.stream.Stream;
 
 public final class SkinStore {
     private static final SkinStore INSTANCE = new SkinStore();
@@ -57,5 +59,31 @@ public final class SkinStore {
             PlayerDisguise.LOGGER.warn("Failed writing skin blob {}", claimedHash, e);
             return false;
         }
+    }
+
+    /**
+     * Delete every {@code .png} blob whose stem isn't in {@code liveHashes}. Offline players' skins are
+     * naturally absent from the live set; they re-upload on next join, so removing them is safe.
+     */
+    public synchronized int gcOrphans(Set<String> liveHashes) {
+        if (dir == null) return 0;
+        int removed = 0;
+        try (Stream<Path> stream = Files.list(dir)) {
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                String name = p.getFileName().toString();
+                if (!name.endsWith(".png")) continue;
+                String hash = name.substring(0, name.length() - 4);
+                if (liveHashes.contains(hash)) continue;
+                try {
+                    Files.delete(p);
+                    removed++;
+                } catch (IOException e) {
+                    PlayerDisguise.LOGGER.warn("Failed deleting orphan skin blob {}", p, e);
+                }
+            }
+        } catch (IOException e) {
+            PlayerDisguise.LOGGER.warn("Failed listing skin store {}", dir, e);
+        }
+        return removed;
     }
 }

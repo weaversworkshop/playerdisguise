@@ -34,13 +34,13 @@ Scope reminder: iterate on NeoForge + common only. `Core/fabric` is parked.
 - **Persistent name history** in `AliasRegistry` via `NameInterval(alias, startMs, endMs, realName)` records, persisted under a new `history` array in `aliases.json` (`endMs == 0` = open). Continuous-timeline invariant: at any moment a UUID has at most one open interval; real-name intervals fill the gaps between alias intervals. Hooks: `putActive` (open alias), `releaseToCooldownInternal` (close alias + open real-name), `forceClearActive` (same), `recordTrueName` (open real-name on first encounter — covers vanilla-client first login). Sub-100ms intervals dropped at close time to absorb the spurious zero-duration real-name interval produced by `claim()`'s switch sequence.
 - **Op-aware real-name targeting** for vanilla commands routing through `EntityArgument` (`/tp`, `/tell`, `/kick`, `/give`, `/list`, etc.). New `CommandContextHolder` (thread-local `CommandSourceStack` stack) populated by a `Commands#performCommand` mixin. `PlayerListMixin#getPlayerByName` consults it: server console / command blocks always bypass the disguise privacy-block; ops bypass when `runner.opLevel >= target.opLevel`. Non-ops still see the alias-only world. **Note:** `/ban`, `/pardon`, `/op`, `/deop`, `/whitelist` go through `GameProfileArgument` → `GameProfileCache#get(String)`, which is intentionally NOT alias-aware — moderation policy is to use `/whois` + `/namehistory` to find the real name, then ban normally (see `memory/project_moderation_policy.md`).
 
+### Phase 4 — storage hygiene
+- **Server-side GC** (`SkinStore#gcOrphans`): deletes `<world>/playerdisguise/skins/<hash>.png` files whose hash isn't in `ServerDisguiseState.skinByUuid`. Runs on `ServerStoppingEvent` and every 10 min via `ServerPersistenceHook`. Offline players' blobs naturally drop and are re-uploaded on next join.
+- **Client-side LRU** (`ClientSkinCache`): caps `<configdir>/playerdisguise/cache/` at 200 PNGs (~12 MB). `evictIfOverCap()` runs on `setDir` (startup) and after each `store`; oldest-by-mtime evicted first. `load()` touches mtime so frequently-used skins stay.
+
 ---
 
 ## Remaining
-
-### Storage hygiene
-- **Server-side:** garbage-collect orphan skin blobs in `<world>/playerdisguise/skins/` (blobs no longer referenced by any active or cooldown profile). Run on shutdown or on a timer.
-- **Client-side:** cap / LRU eviction on `<configdir>/playerdisguise/cache/` so it doesn't grow unbounded.
 
 ### Documentation
 - README: disclose that the mod transmits user-supplied skin PNGs and pseudonyms to servers running this mod (Modrinth rule 1.11).

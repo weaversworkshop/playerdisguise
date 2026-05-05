@@ -10,10 +10,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,7 +31,8 @@ public final class AliasRegistry {
         INVALID
     }
 
-    public record CooldownEntry(String alias, long expiryMs) {}
+    public record SkinRef(String hash, String model) {}
+    public record CooldownEntry(String alias, long expiryMs, @Nullable SkinRef skin) {}
     /**
      * A single interval during which a UUID held a name (alias OR real). {@code endMs == 0L} means still active.
      * {@code realName} is true for periods the player held their real Mojang name (i.e., undisguised).
@@ -38,8 +41,8 @@ public final class AliasRegistry {
         public boolean isOpen() { return endMs == 0L; }
     }
     private record SaveFile(List<ActiveEntry> active, List<SavedCooldown> cooldown, List<TrueNameEntry> trueNames, List<HistoryEntry> history) {}
-    private record ActiveEntry(String uuid, String alias) {}
-    private record SavedCooldown(String uuid, String alias, long expiryMs) {}
+    private record ActiveEntry(String uuid, String alias, @Nullable String hash, @Nullable String model) {}
+    private record SavedCooldown(String uuid, String alias, long expiryMs, @Nullable String hash, @Nullable String model) {}
     private record TrueNameEntry(String uuid, String realName) {}
     private record HistoryEntry(String uuid, String alias, long startMs, long endMs, boolean realName) {}
 
@@ -52,6 +55,8 @@ public final class AliasRegistry {
 
     private final Map<UUID, String> activeByUuid = new ConcurrentHashMap<>();
     private final Map<String, UUID> activeByAliasLc = new ConcurrentHashMap<>();
+    /** Skin associated with each active claim. Cleared when alias released; transferred into the cooldown entry. */
+    private final Map<UUID, SkinRef> activeSkinByUuid = new ConcurrentHashMap<>();
     private final Map<UUID, CooldownEntry> cooldownByUuid = new ConcurrentHashMap<>();
     private final Map<String, UUID> cooldownByAliasLc = new ConcurrentHashMap<>();
     private final Map<UUID, String> trueNameByUuid = new ConcurrentHashMap<>();
@@ -87,10 +92,14 @@ public final class AliasRegistry {
 
         CooldownEntry myCool = cooldownByUuid.get(uuid);
         if (myCool != null && lc.equals(myCool.alias.toLowerCase(Locale.ROOT))) {
+            SkinRef cooldownSkin = myCool.skin;
             cooldownByUuid.remove(uuid);
             cooldownByAliasLc.remove(lc);
             releaseToCooldownInternal(uuid);
             putActive(uuid, alias);
+            // Carry the prior skin forward — the handler may overwrite it via setActiveSkin if the
+            // client supplied a different hash, but until then resuming a cooldown alias retains its skin.
+            if (cooldownSkin != null) activeSkinByUuid.put(uuid, cooldownSkin);
             return ClaimResult.RESUMED_FROM_COOLDOWN;
         }
 
@@ -119,6 +128,7 @@ public final class AliasRegistry {
 
     public synchronized void forceClearActive(UUID uuid) {
         String alias = activeByUuid.remove(uuid);
+        activeSkinByUuid.remove(uuid);
         if (alias != null) {
             activeByAliasLc.remove(alias.toLowerCase(Locale.ROOT));
             closeOpenInterval(uuid);
@@ -166,11 +176,46 @@ public final class AliasRegistry {
     public synchronized void clear() {
         activeByUuid.clear();
         activeByAliasLc.clear();
+        activeSkinByUuid.clear();
         cooldownByUuid.clear();
         cooldownByAliasLc.clear();
         trueNameByUuid.clear();
         trueNameByLc.clear();
         historyByUuid.clear();
+    }
+
+    /** Set or update the skin associated with a player's currently active claim. {@code hash} blank = clear. */
+    public synchronized void setActiveSkin(UUID uuid, @Nullable String hash, @Nullable String model) {
+        if (hash == null || hash.isBlank()) {
+            activeSkinByUuid.remove(uuid);
+            return;
+        }
+        activeSkinByUuid.put(uuid, new SkinRef(hash, model == null ? "" : model));
+    }
+
+    public synchronized void clearActiveSkin(UUID uuid) {
+        activeSkinByUuid.remove(uuid);
+    }
+
+    public @Nullable SkinRef activeSkinOf(UUID uuid) {
+        return activeSkinByUuid.get(uuid);
+    }
+
+    public @Nullable SkinRef cooldownSkinOf(UUID uuid) {
+        CooldownEntry e = cooldownByUuid.get(uuid);
+        return e == null ? null : e.skin;
+    }
+
+    /** Union of every hash referenced by an active claim or an unexpired cooldown — the GC live set. */
+    public synchronized Set<String> liveSkinHashes() {
+        Set<String> out = new HashSet<>();
+        for (SkinRef r : activeSkinByUuid.values()) {
+            if (r != null && r.hash != null && !r.hash.isBlank()) out.add(r.hash);
+        }
+        for (CooldownEntry e : cooldownByUuid.values()) {
+            if (e != null && e.skin != null && e.skin.hash != null && !e.skin.hash.isBlank()) out.add(e.skin.hash);
+        }
+        return out;
     }
 
     private void putActive(UUID uuid, String alias) {
@@ -183,6 +228,7 @@ public final class AliasRegistry {
 
     private void releaseToCooldownInternal(UUID uuid) {
         String alias = activeByUuid.remove(uuid);
+        SkinRef skin = activeSkinByUuid.remove(uuid);
         if (alias == null) return;
         activeByAliasLc.remove(alias.toLowerCase(Locale.ROOT));
         closeOpenInterval(uuid);
@@ -194,7 +240,9 @@ public final class AliasRegistry {
         CooldownEntry prior = cooldownByUuid.remove(uuid);
         if (prior != null) cooldownByAliasLc.remove(prior.alias.toLowerCase(Locale.ROOT));
         long expiry = System.currentTimeMillis() + cooldownMs;
-        cooldownByUuid.put(uuid, new CooldownEntry(alias, expiry));
+        // Carry the just-released skin into the cooldown entry so its blob survives orphan GC during
+        // the cooldown window — a quick rejoin can resume without re-uploading.
+        cooldownByUuid.put(uuid, new CooldownEntry(alias, expiry, skin));
         cooldownByAliasLc.put(alias.toLowerCase(Locale.ROOT), uuid);
     }
 
@@ -237,13 +285,21 @@ public final class AliasRegistry {
             if (sf == null) return;
             if (sf.active != null) for (ActiveEntry e : sf.active) {
                 if (e == null || e.uuid == null || e.alias == null) continue;
-                try { putActive(UUID.fromString(e.uuid), e.alias); } catch (Exception ignored) {}
+                try {
+                    UUID u = UUID.fromString(e.uuid);
+                    putActive(u, e.alias);
+                    if (e.hash != null && !e.hash.isBlank()) {
+                        activeSkinByUuid.put(u, new SkinRef(e.hash, e.model == null ? "" : e.model));
+                    }
+                } catch (Exception ignored) {}
             }
             if (sf.cooldown != null) for (SavedCooldown e : sf.cooldown) {
                 if (e == null || e.uuid == null || e.alias == null) continue;
                 try {
                     UUID u = UUID.fromString(e.uuid);
-                    cooldownByUuid.put(u, new CooldownEntry(e.alias, e.expiryMs));
+                    SkinRef skin = (e.hash != null && !e.hash.isBlank())
+                            ? new SkinRef(e.hash, e.model == null ? "" : e.model) : null;
+                    cooldownByUuid.put(u, new CooldownEntry(e.alias, e.expiryMs, skin));
                     cooldownByAliasLc.put(e.alias.toLowerCase(Locale.ROOT), u);
                 } catch (Exception ignored) {}
             }
@@ -271,9 +327,19 @@ public final class AliasRegistry {
         try {
             Files.createDirectories(file.getParent());
             List<ActiveEntry> active = new ArrayList<>();
-            for (var e : activeByUuid.entrySet()) active.add(new ActiveEntry(e.getKey().toString(), e.getValue()));
+            for (var e : activeByUuid.entrySet()) {
+                SkinRef skin = activeSkinByUuid.get(e.getKey());
+                active.add(new ActiveEntry(
+                        e.getKey().toString(), e.getValue(),
+                        skin == null ? null : skin.hash, skin == null ? null : skin.model));
+            }
             List<SavedCooldown> cooldown = new ArrayList<>();
-            for (var e : cooldownByUuid.entrySet()) cooldown.add(new SavedCooldown(e.getKey().toString(), e.getValue().alias, e.getValue().expiryMs));
+            for (var e : cooldownByUuid.entrySet()) {
+                CooldownEntry ce = e.getValue();
+                cooldown.add(new SavedCooldown(
+                        e.getKey().toString(), ce.alias, ce.expiryMs,
+                        ce.skin == null ? null : ce.skin.hash, ce.skin == null ? null : ce.skin.model));
+            }
             List<TrueNameEntry> trueNames = new ArrayList<>();
             for (var e : trueNameByUuid.entrySet()) trueNames.add(new TrueNameEntry(e.getKey().toString(), e.getValue()));
             List<HistoryEntry> history = new ArrayList<>();

@@ -2,9 +2,7 @@ package com.weaversworkshop.playerdisguise.server;
 
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,13 +30,5 @@ public final class ServerDisguiseState {
 
     public void clearAll() {
         skinByUuid.clear();
-    }
-
-    public Set<String> liveSkinHashes() {
-        Set<String> hashes = new HashSet<>(skinByUuid.size());
-        for (Skin s : skinByUuid.values()) {
-            if (s != null && s.hash() != null) hashes.add(s.hash());
-        }
-        return hashes;
     }
 }

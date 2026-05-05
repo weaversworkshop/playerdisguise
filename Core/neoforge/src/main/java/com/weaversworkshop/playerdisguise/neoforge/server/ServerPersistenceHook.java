@@ -44,8 +44,7 @@ public final class ServerPersistenceHook {
     @SubscribeEvent
     public static void onStopping(ServerStoppingEvent event) {
         AliasRegistry.get().save(aliasFile(event.getServer()));
-        int removed = SkinStore.get().gcOrphans(ServerDisguiseState.get().liveSkinHashes());
-        if (removed > 0) PlayerDisguise.LOGGER.info("Skin store GC: removed {} orphan blob(s)", removed);
+        runSkinMaintenance();
     }
 
     @SubscribeEvent
@@ -63,8 +62,14 @@ public final class ServerPersistenceHook {
         }
         if (gcCounter >= GC_INTERVAL_TICKS) {
             gcCounter = 0;
-            int removed = SkinStore.get().gcOrphans(ServerDisguiseState.get().liveSkinHashes());
-            if (removed > 0) PlayerDisguise.LOGGER.info("Skin store GC: removed {} orphan blob(s)", removed);
+            runSkinMaintenance();
         }
+    }
+
+    private static void runSkinMaintenance() {
+        int orphans = SkinStore.get().gcOrphans(AliasRegistry.get().liveSkinHashes());
+        if (orphans > 0) PlayerDisguise.LOGGER.info("Skin store GC: removed {} orphan blob(s)", orphans);
+        int evicted = SkinStore.get().enforceCap();
+        if (evicted > 0) PlayerDisguise.LOGGER.info("Skin store LRU: evicted {} oldest blob(s)", evicted);
     }
 }

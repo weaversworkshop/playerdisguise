@@ -7,10 +7,17 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
 public final class SkinStore {
+    /** Soft cap on stored blobs. At ~64 KB each this is ~320 MB worst case. */
+    private static final int MAX_ENTRIES = 5000;
+
     private static final SkinStore INSTANCE = new SkinStore();
     public static SkinStore get() { return INSTANCE; }
 
@@ -34,7 +41,11 @@ public final class SkinStore {
         if (dir == null) return null;
         Path p = dir.resolve(hash + ".png");
         if (!Files.exists(p)) return null;
-        try { return Files.readAllBytes(p); } catch (IOException e) {
+        try {
+            byte[] data = Files.readAllBytes(p);
+            try { Files.setLastModifiedTime(p, FileTime.fromMillis(System.currentTimeMillis())); } catch (IOException ignored) {}
+            return data;
+        } catch (IOException e) {
             PlayerDisguise.LOGGER.warn("Failed reading skin blob {}", hash, e);
             return null;
         }
@@ -53,12 +64,41 @@ public final class SkinStore {
             return false;
         }
         try {
-            Files.write(dir.resolve(claimedHash + ".png"), bytes);
+            Path p = dir.resolve(claimedHash + ".png");
+            Files.write(p, bytes);
+            try { Files.setLastModifiedTime(p, FileTime.fromMillis(System.currentTimeMillis())); } catch (IOException ignored) {}
             return true;
         } catch (IOException e) {
             PlayerDisguise.LOGGER.warn("Failed writing skin blob {}", claimedHash, e);
             return false;
         }
+    }
+
+    /**
+     * Trim store to {@link #MAX_ENTRIES} blobs, deleting oldest-by-mtime first. Eviction is unconditional —
+     * even referenced blobs may be evicted if they're the oldest. The two-step handshake handles cache misses
+     * gracefully: a client whose blob was evicted will simply be asked to re-upload on next join.
+     */
+    public synchronized int enforceCap() {
+        if (dir == null) return 0;
+        List<Path> files = new ArrayList<>();
+        try (Stream<Path> stream = Files.list(dir)) {
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                if (p.getFileName().toString().endsWith(".png")) files.add(p);
+            }
+        } catch (IOException e) { return 0; }
+        if (files.size() <= MAX_ENTRIES) return 0;
+        files.sort(Comparator.comparingLong(p -> {
+            try { return Files.getLastModifiedTime(p).toMillis(); }
+            catch (IOException e) { return 0L; }
+        }));
+        int toRemove = files.size() - MAX_ENTRIES;
+        int removed = 0;
+        for (int i = 0; i < toRemove; i++) {
+            try { Files.delete(files.get(i)); removed++; }
+            catch (IOException e) { PlayerDisguise.LOGGER.warn("Failed evicting LRU skin blob {}", files.get(i), e); }
+        }
+        return removed;
     }
 
     /**

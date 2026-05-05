@@ -15,7 +15,8 @@ public final class ServerLogoutHook {
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
-        AliasRegistry.get().release(sp.getUUID());
+        // Active alias persists across logout (released only on explicit switch). Just drop the in-memory
+        // online-mirror so the player's entry doesn't show up in bulk-snapshot iteration while offline.
         ServerDisguiseState.get().clearSkin(sp.getUUID());
         // Intentionally do NOT broadcast a clear: other clients may still be
         // rendering chat history / lingering references to this player's

@@ -9,16 +9,21 @@ import com.weaversworkshop.playerdisguise.config.ConfigStore;
 import com.weaversworkshop.playerdisguise.config.Profile;
 import com.weaversworkshop.playerdisguise.config.ProfileBook;
 import com.weaversworkshop.playerdisguise.net.payload.ClientDisguiseChoice;
+import com.weaversworkshop.playerdisguise.net.payload.ClientSkinUpload;
 import com.weaversworkshop.playerdisguise.net.payload.PlayerDisguiseUpdate;
+import com.weaversworkshop.playerdisguise.net.payload.ProceedWithoutSkin;
 import com.weaversworkshop.playerdisguise.net.payload.RequestSkinBlob;
+import com.weaversworkshop.playerdisguise.net.payload.ServerNeedsSkinUpload;
 import com.weaversworkshop.playerdisguise.net.payload.ServerRequestDisguise;
 import com.weaversworkshop.playerdisguise.net.payload.SkinBlob;
+import com.weaversworkshop.playerdisguise.net.payload.SkinUploadFailed;
 import com.weaversworkshop.playerdisguise.server.AliasClaimTask;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
 import com.weaversworkshop.playerdisguise.server.ServerDisguiseState;
 import com.weaversworkshop.playerdisguise.server.SkinStore;
 import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerConfigurationPacketListenerImpl;
@@ -29,11 +34,22 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @EventBusSubscriber(modid = PlayerDisguise.MODID, bus = EventBusSubscriber.Bus.MOD)
 public final class PdNetworkSetup {
     private PdNetworkSetup() {}
+
+    /**
+     * Per-listener handshake state for the two-step skin protocol. Holds the alias the player wants to
+     * claim plus the hash they declared, so when {@link ClientSkinUpload} or {@link ProceedWithoutSkin}
+     * arrives we can validate it against this listener's expected state and commit (or not).
+     */
+    private record Pending(UUID uuid, String alias, String hash, String model) {}
+
+    private static final Map<ServerConfigurationPacketListenerImpl, Pending> PENDING = new ConcurrentHashMap<>();
 
     @SubscribeEvent
     public static void register(RegisterPayloadHandlersEvent event) {
@@ -44,6 +60,14 @@ public final class PdNetworkSetup {
                 ServerRequestDisguise.TYPE, ServerRequestDisguise.STREAM_CODEC, PdNetworkSetup::handleRequestOnClient);
         registrar.configurationToServer(
                 ClientDisguiseChoice.TYPE, ClientDisguiseChoice.STREAM_CODEC, PdNetworkSetup::handleChoiceConfig);
+        registrar.configurationToClient(
+                ServerNeedsSkinUpload.TYPE, ServerNeedsSkinUpload.STREAM_CODEC, PdNetworkSetup::handleNeedsUploadOnClient);
+        registrar.configurationToServer(
+                ClientSkinUpload.TYPE, ClientSkinUpload.STREAM_CODEC, PdNetworkSetup::handleSkinUploadConfig);
+        registrar.configurationToClient(
+                SkinUploadFailed.TYPE, SkinUploadFailed.STREAM_CODEC, PdNetworkSetup::handleUploadFailedOnClient);
+        registrar.configurationToServer(
+                ProceedWithoutSkin.TYPE, ProceedWithoutSkin.STREAM_CODEC, PdNetworkSetup::handleProceedWithoutSkinConfig);
 
         // Play phase — disguise broadcasts and skin blob exchange
         registrar.playToClient(
@@ -77,6 +101,7 @@ public final class PdNetworkSetup {
         }
     }
 
+    // ---- Server: receives the client's claim choice (no bytes) ----
     private static void handleChoiceConfig(ClientDisguiseChoice payload, IPayloadContext context) {
         if (!(context.listener() instanceof ServerConfigurationPacketListenerImpl listener)) {
             context.disconnect(Component.literal("Disguise handshake received outside configuration phase"));
@@ -92,9 +117,11 @@ public final class PdNetworkSetup {
         AliasRegistry.get().recordTrueName(uuid, realName);
 
         String requested = payload.pseudonym();
+        // No alias requested: clear any prior state and finish.
         if (requested == null || requested.isBlank()) {
             AliasRegistry.get().release(uuid);
             ServerDisguiseState.get().clearSkin(uuid);
+            PENDING.remove(listener);
             context.finishCurrentTask(AliasClaimTask.TYPE);
             return;
         }
@@ -104,20 +131,25 @@ public final class PdNetworkSetup {
             case ACCEPTED, RESUMED_FROM_COOLDOWN -> {
                 String hash = payload.skinHash() == null ? "" : payload.skinHash();
                 String model = payload.skinModel() == null ? "" : payload.skinModel();
-                if (!hash.isBlank() && payload.skinBytes() != null && payload.skinBytes().length > 0) {
-                    if (!SkinStore.get().store(hash, payload.skinBytes())) {
-                        hash = "";
-                        model = "";
-                    }
-                } else if (!hash.isBlank() && !SkinStore.get().has(hash)) {
-                    hash = "";
-                    model = "";
+                if (hash.isBlank()) {
+                    // Alias-only claim — no skin involved.
+                    AliasRegistry.get().clearActiveSkin(uuid);
+                    ServerDisguiseState.get().clearSkin(uuid);
+                    PENDING.remove(listener);
+                    PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' ({}) skin=<none>", realName, requested, result);
+                    context.finishCurrentTask(AliasClaimTask.TYPE);
+                } else if (SkinStore.get().has(hash)) {
+                    // Cache hit — server already has the bytes. Commit immediately.
+                    AliasRegistry.get().setActiveSkin(uuid, hash, model);
+                    ServerDisguiseState.get().putSkin(uuid, hash, model);
+                    PENDING.remove(listener);
+                    PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' ({}) skin={} (cache hit)", realName, requested, result, hash);
+                    context.finishCurrentTask(AliasClaimTask.TYPE);
+                } else {
+                    // Cache miss — ask client to upload. Stash the expected hash so we can validate it later.
+                    PENDING.put(listener, new Pending(uuid, requested, hash, model));
+                    context.reply(new ServerNeedsSkinUpload(hash));
                 }
-                if (!hash.isBlank()) ServerDisguiseState.get().putSkin(uuid, hash, model);
-                else ServerDisguiseState.get().clearSkin(uuid);
-                PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' ({}) skin={}",
-                        realName, requested, result, hash.isBlank() ? "<none>" : hash);
-                context.finishCurrentTask(AliasClaimTask.TYPE);
             }
             case REJECTED_ACTIVE_OTHER -> context.disconnect(Component.literal(
                     "Pseudonym '" + requested + "' is in use by another player. Pick a different one and rejoin."));
@@ -129,13 +161,58 @@ public final class PdNetworkSetup {
         }
     }
 
+    // ---- Server: receives the requested skin upload ----
+    private static void handleSkinUploadConfig(ClientSkinUpload payload, IPayloadContext context) {
+        if (!(context.listener() instanceof ServerConfigurationPacketListenerImpl listener)) {
+            context.disconnect(Component.literal("Skin upload received outside configuration phase"));
+            return;
+        }
+        Pending pending = PENDING.get(listener);
+        if (pending == null) {
+            // Unsolicited upload — anti-spam guard. Disconnect.
+            PlayerDisguise.LOGGER.warn("Rejecting unsolicited ClientSkinUpload from {}", listener.playerProfile() == null ? "?" : listener.playerProfile().getName());
+            context.disconnect(Component.literal("Unexpected skin upload."));
+            return;
+        }
+        if (!pending.hash.equals(payload.hash())) {
+            PlayerDisguise.LOGGER.warn("Skin upload hash mismatch: expected {} got {}", pending.hash, payload.hash());
+            context.reply(new SkinUploadFailed("Hash mismatch in upload"));
+            return;
+        }
+        boolean stored = SkinStore.get().store(pending.hash, payload.bytes());
+        if (!stored) {
+            context.reply(new SkinUploadFailed("Skin failed validation"));
+            return;
+        }
+        // Validation OK — commit.
+        AliasRegistry.get().setActiveSkin(pending.uuid, pending.hash, pending.model);
+        ServerDisguiseState.get().putSkin(pending.uuid, pending.hash, pending.model);
+        PENDING.remove(listener);
+        SkinStore.get().enforceCap();
+        String name = listener.playerProfile() == null ? "?" : listener.playerProfile().getName();
+        PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' skin={} (uploaded)", name, pending.alias, pending.hash);
+        context.finishCurrentTask(AliasClaimTask.TYPE);
+    }
+
+    // ---- Server: client confirmed they want to join exposed (alias only, real skin) ----
+    private static void handleProceedWithoutSkinConfig(ProceedWithoutSkin payload, IPayloadContext context) {
+        if (!(context.listener() instanceof ServerConfigurationPacketListenerImpl listener)) return;
+        Pending pending = PENDING.remove(listener);
+        if (pending == null) return; // no-op if not awaiting
+        AliasRegistry.get().clearActiveSkin(pending.uuid);
+        ServerDisguiseState.get().clearSkin(pending.uuid);
+        String name = listener.playerProfile() == null ? "?" : listener.playerProfile().getName();
+        PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' skin=<exposed by user choice>", name, pending.alias);
+        context.finishCurrentTask(AliasClaimTask.TYPE);
+    }
+
+    // ---- Client: received from server during config phase ----
     private static void handleRequestOnClient(ServerRequestDisguise payload, IPayloadContext context) {
         ConfigStore store = PlayerDisguiseClient.config();
         ProfileBook book = store.book();
         String name = "";
         String hash = "";
         String model = "";
-        byte[] bytes = new byte[0];
         if (!book.isRealActive()) {
             Profile active = book.activeStored();
             name = active.name();
@@ -147,14 +224,21 @@ public final class PdNetworkSetup {
                     if (v != null) {
                         hash = v.sha256();
                         model = active.resolvedModel() == PlayerSkin.Model.SLIM ? "slim" : "wide";
-                        bytes = v.bytes();
                     }
                 } catch (Exception e) {
-                    PlayerDisguise.LOGGER.warn("Failed to read skin for upload", e);
+                    PlayerDisguise.LOGGER.warn("Failed to read skin metadata for handshake", e);
                 }
             }
         }
-        context.reply(new ClientDisguiseChoice(name, hash, model, bytes));
+        context.reply(new ClientDisguiseChoice(name, hash, model));
+    }
+
+    private static void handleNeedsUploadOnClient(ServerNeedsSkinUpload payload, IPayloadContext context) {
+        ClientDisguiseHandler.respondToServerSkinRequest(payload.hash(), context::reply);
+    }
+
+    private static void handleUploadFailedOnClient(SkinUploadFailed payload, IPayloadContext context) {
+        ClientDisguiseHandler.showSkinUploadFailedScreen(payload.reason(), context::reply, context::disconnect);
     }
 
     private static void handleClientRequestBlob(RequestSkinBlob payload, IPayloadContext context) {

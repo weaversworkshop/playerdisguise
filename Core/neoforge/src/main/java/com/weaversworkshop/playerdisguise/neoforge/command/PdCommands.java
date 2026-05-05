@@ -7,6 +7,8 @@ import com.weaversworkshop.playerdisguise.PlayerDisguise;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry.NameInterval;
 import com.weaversworkshop.playerdisguise.server.LookupFormatter;
+import com.weaversworkshop.playerdisguise.server.ReportLog;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -37,6 +39,7 @@ public final class PdCommands {
     public static void onRegister(RegisterCommandsEvent event) {
         event.getDispatcher().register(buildWhois());
         event.getDispatcher().register(buildNameHistory());
+        event.getDispatcher().register(buildReportDisguise());
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildWhois() {
@@ -49,6 +52,51 @@ public final class PdCommands {
         return Commands.literal("namehistory")
                 .then(Commands.argument("name", StringArgumentType.word())
                         .executes(ctx -> runNameHistory(ctx.getSource(), StringArgumentType.getString(ctx, "name"))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildReportDisguise() {
+        return Commands.literal("reportdisguise")
+                .then(Commands.argument("alias", StringArgumentType.word())
+                        .executes(ctx -> runReport(ctx.getSource(), StringArgumentType.getString(ctx, "alias"), ""))
+                        .then(Commands.argument("reason", StringArgumentType.greedyString())
+                                .executes(ctx -> runReport(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "alias"),
+                                        StringArgumentType.getString(ctx, "reason")))));
+    }
+
+    // ---- /reportdisguise -------------------------------------------------------
+
+    private static int runReport(CommandSourceStack source, String alias, String reason) {
+        AliasRegistry reg = AliasRegistry.get();
+        Entity entity = source.getEntity();
+        if (entity == null) {
+            source.sendFailure(Component.literal("/reportdisguise can only be used by players."));
+            return 0;
+        }
+        UUID reporterUuid = entity.getUUID();
+        String reporterReal = reg.realNameOf(reporterUuid);
+        if (reporterReal == null) reporterReal = source.getTextName();
+
+        UUID targetUuid = reg.uuidOf(alias);
+        if (targetUuid == null) {
+            source.sendFailure(Component.literal("No player is currently using the alias '" + alias + "'."));
+            return 0;
+        }
+        String targetReal = reg.realNameOf(targetUuid);
+        if (targetReal == null) targetReal = "?";
+
+        boolean ok = ReportLog.get().append(reporterUuid, reporterReal, targetUuid, targetReal, alias,
+                reason == null ? "" : reason);
+        if (!ok) {
+            source.sendFailure(Component.literal("Failed to record report. Tell an administrator."));
+            return 0;
+        }
+
+        PlayerDisguise.LOGGER.info("Disguise report: reporter={} target={} alias='{}' reason='{}'",
+                reporterReal, targetReal, alias, reason == null ? "" : reason);
+        source.sendSuccess(() -> Component.literal("Report submitted. Thank you.")
+                .withStyle(ChatFormatting.GREEN), false);
+        return 1;
     }
 
     // ---- /whois ----------------------------------------------------------------

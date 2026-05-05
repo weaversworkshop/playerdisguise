@@ -1,7 +1,9 @@
 package com.weaversworkshop.playerdisguise.neoforge.server;
 
 import com.weaversworkshop.playerdisguise.PlayerDisguise;
+import com.weaversworkshop.playerdisguise.server.AliasContentFilter;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
+import com.weaversworkshop.playerdisguise.server.ReportLog;
 import com.weaversworkshop.playerdisguise.server.ServerDisguiseState;
 import com.weaversworkshop.playerdisguise.server.SkinStore;
 import net.minecraft.server.MinecraftServer;
@@ -35,6 +37,8 @@ public final class ServerPersistenceHook {
         Path worldDir = event.getServer().getWorldPath(LevelResource.ROOT);
         AliasRegistry.get().load(aliasFile(event.getServer()));
         SkinStore.get().setDir(worldDir.resolve("playerdisguise").resolve("skins"));
+        AliasContentFilter.get().setFile(worldDir.resolve("playerdisguise").resolve("alias-blocklist.txt"));
+        ReportLog.get().setFile(worldDir.resolve("playerdisguise").resolve("reports.log"));
         ServerDisguiseState.get().clearAll();
         saveCounter = 0;
         pruneCounter = 0;

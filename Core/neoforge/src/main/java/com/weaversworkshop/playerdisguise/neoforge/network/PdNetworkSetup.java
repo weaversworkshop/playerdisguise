@@ -18,6 +18,7 @@ import com.weaversworkshop.playerdisguise.net.payload.ServerRequestDisguise;
 import com.weaversworkshop.playerdisguise.net.payload.SkinBlob;
 import com.weaversworkshop.playerdisguise.net.payload.SkinUploadFailed;
 import com.weaversworkshop.playerdisguise.server.AliasClaimTask;
+import com.weaversworkshop.playerdisguise.server.AliasContentFilter;
 import com.weaversworkshop.playerdisguise.server.AliasRegistry;
 import com.weaversworkshop.playerdisguise.server.ServerDisguiseState;
 import com.weaversworkshop.playerdisguise.server.SkinStore;
@@ -123,6 +124,13 @@ public final class PdNetworkSetup {
             ServerDisguiseState.get().clearSkin(uuid);
             PENDING.remove(listener);
             context.finishCurrentTask(AliasClaimTask.TYPE);
+            return;
+        }
+
+        if (AliasContentFilter.get().isBlocked(requested)) {
+            PlayerDisguise.LOGGER.info("Rejected pseudonym '{}' from {} — matched alias blocklist", requested, realName);
+            context.disconnect(Component.literal(
+                    "Pseudonym '" + requested + "' is not allowed on this server. Pick a different one and rejoin."));
             return;
         }
 

@@ -38,9 +38,9 @@ public final class ClientDisguiseHandler {
         if (hash != null && !hash.isBlank()) blobRequester.accept(hash);
     }
 
-    public static void applyDisguise(UUID uuid, String pseudonym, String hash, String modelId) {
-        ClientAliasMirror.put(uuid, pseudonym);
-        ClientDisguiseRegistry.put(uuid, (pseudonym == null || pseudonym.isBlank()) ? null : pseudonym, null);
+    public static void applyDisguise(UUID uuid, String alias, String hash, String modelId) {
+        ClientAliasMirror.put(uuid, alias);
+        ClientDisguiseRegistry.put(uuid, (alias == null || alias.isBlank()) ? null : alias, null);
 
         if (hash == null || hash.isBlank()) {
             ClientDisguiseRegistry.updateSkin(uuid, null);

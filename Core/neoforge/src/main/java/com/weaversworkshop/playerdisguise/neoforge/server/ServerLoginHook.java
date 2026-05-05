@@ -25,7 +25,7 @@ public final class ServerLoginHook {
             ServerPlayer kicked = joining.server.getPlayerList().getPlayer(kickedUuid);
             if (kicked != null) {
                 kicked.connection.disconnect(net.minecraft.network.chat.Component.literal(
-                        "Disguise pseudonym matched a real player who just joined: " + realName));
+                        "Disguise alias matched a real player who just joined: " + realName));
                 PlayerDisguise.LOGGER.info("Kicked {} (alias collided with real player {})",
                         kicked.getGameProfile().getName(), joining.getGameProfile().getName());
             }
@@ -33,7 +33,7 @@ public final class ServerLoginHook {
 
         PdNetworkSetup.sendBulkSnapshotTo(joining);
 
-        String alias = AliasRegistry.get().pseudonymOf(joining.getUUID());
+        String alias = AliasRegistry.get().aliasOf(joining.getUUID());
         if (alias != null) {
             ServerDisguiseState.Skin sk = ServerDisguiseState.get().skinFor(joining.getUUID());
             String hash = sk == null ? "" : sk.hash();

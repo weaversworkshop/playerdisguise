@@ -61,7 +61,7 @@ public final class PlayerHeadDropHook {
         if (realUuid == null) return;
         if (expectedOwner != null && !expectedOwner.equals(realUuid)) return;
 
-        String alias = AliasRegistry.get().pseudonymOf(realUuid);
+        String alias = AliasRegistry.get().aliasOf(realUuid);
         if (alias == null) return;
 
         ServerDisguiseState.Skin skin = ServerDisguiseState.get().skinFor(realUuid);

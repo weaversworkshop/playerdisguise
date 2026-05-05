@@ -14,7 +14,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,7 +76,7 @@ public final class AliasRegistry {
         this.clock = supplier == null ? System::currentTimeMillis : supplier;
     }
 
-    public @Nullable String pseudonymOf(UUID uuid) {
+    public @Nullable String aliasOf(UUID uuid) {
         return activeByUuid.get(uuid);
     }
 

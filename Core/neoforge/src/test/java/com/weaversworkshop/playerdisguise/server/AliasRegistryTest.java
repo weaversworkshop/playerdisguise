@@ -53,7 +53,7 @@ class AliasRegistryTest {
     void claim_unique_accepted_andLookups() {
         assertEquals(ClaimResult.ACCEPTED, reg.claim(alice, "Shadow"));
         assertTrue(reg.isDisguised(alice));
-        assertEquals("Shadow", reg.pseudonymOf(alice));
+        assertEquals("Shadow", reg.aliasOf(alice));
         // Case-insensitive alias→uuid lookup
         assertEquals(alice, reg.uuidOf("shadow"));
         assertEquals(alice, reg.uuidOf("SHADOW"));
@@ -103,7 +103,7 @@ class AliasRegistryTest {
         reg.release(alice);
         assertEquals(ClaimResult.RESUMED_FROM_COOLDOWN, reg.claim(alice, "Shadow"));
         assertTrue(reg.isDisguised(alice));
-        assertEquals("Shadow", reg.pseudonymOf(alice));
+        assertEquals("Shadow", reg.aliasOf(alice));
     }
 
     @Test
@@ -140,7 +140,7 @@ class AliasRegistryTest {
     void switchAlias_priorAliasGoesOnCooldown() {
         reg.claim(alice, "Shadow");
         assertEquals(ClaimResult.ACCEPTED, reg.claim(alice, "Phantom"));
-        assertEquals("Phantom", reg.pseudonymOf(alice));
+        assertEquals("Phantom", reg.aliasOf(alice));
         // Old alias is now reserved on cooldown; another player can't grab it
         assertEquals(ClaimResult.REJECTED_COOLDOWN_OTHER, reg.claim(bob, "Shadow"));
     }
@@ -153,7 +153,7 @@ class AliasRegistryTest {
         reg.claim(alice, "Shadow");
         reg.forceClearActive(alice);
         assertFalse(reg.isDisguised(alice));
-        assertNull(reg.pseudonymOf(alice));
+        assertNull(reg.aliasOf(alice));
         // No cooldown is created by forceClearActive
         assertEquals(ClaimResult.ACCEPTED, reg.claim(bob, "Shadow"));
         // And the open history interval should now be the real name
@@ -384,7 +384,7 @@ class AliasRegistryTest {
         reg.load(file);
 
         assertTrue(reg.isDisguised(alice));
-        assertEquals("Shadow", reg.pseudonymOf(alice));
+        assertEquals("Shadow", reg.aliasOf(alice));
         assertEquals("hash-shadow", reg.activeSkinOf(alice).hash());
 
         assertFalse(reg.isDisguised(bob));

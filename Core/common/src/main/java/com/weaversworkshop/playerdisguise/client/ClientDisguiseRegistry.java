@@ -15,8 +15,8 @@ public final class ClientDisguiseRegistry {
 
     private ClientDisguiseRegistry() {}
 
-    public static void put(UUID uuid, @Nullable String pseudonym, @Nullable PlayerSkin skin) {
-        ENTRIES.put(uuid, new Entry(pseudonym == null ? null : Component.literal(pseudonym), skin));
+    public static void put(UUID uuid, @Nullable String alias, @Nullable PlayerSkin skin) {
+        ENTRIES.put(uuid, new Entry(alias == null ? null : Component.literal(alias), skin));
     }
 
     public static void remove(UUID uuid) {

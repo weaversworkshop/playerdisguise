@@ -1,6 +1,6 @@
 modLoader = "javafml"
 loaderVersion = "${neoforge_loader_version_range}"
-license = "All Rights Reserved"
+license = "MPL-2.0"
 
 [[mods]]
 modId = "${mod_id}"

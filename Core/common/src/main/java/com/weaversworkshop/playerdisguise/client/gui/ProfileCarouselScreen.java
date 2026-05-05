@@ -25,8 +25,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class PseudonymCarouselScreen extends Screen {
-    private static final Component TITLE = Component.literal("Pseudonyms");
+public class ProfileCarouselScreen extends Screen {
+    private static final Component TITLE = Component.translatable("playerdisguise.screen.aliases.title");
 
     private final @Nullable Screen parent;
     private int viewIndex;
@@ -39,7 +39,7 @@ public class PseudonymCarouselScreen extends Screen {
     private final PlayerSkin fallbackSkin;
     private final String realName;
 
-    public PseudonymCarouselScreen(@Nullable Screen parent) {
+    public ProfileCarouselScreen(@Nullable Screen parent) {
         super(TITLE);
         this.parent = parent;
         Minecraft mc = Minecraft.getInstance();

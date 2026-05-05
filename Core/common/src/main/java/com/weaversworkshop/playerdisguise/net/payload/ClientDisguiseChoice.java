@@ -6,7 +6,7 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record ClientDisguiseChoice(String pseudonym, String skinHash, String skinModel)
+public record ClientDisguiseChoice(String alias, String skinHash, String skinModel)
         implements CustomPacketPayload {
 
     public static final Type<ClientDisguiseChoice> TYPE = new Type<>(
@@ -15,7 +15,7 @@ public record ClientDisguiseChoice(String pseudonym, String skinHash, String ski
     public static final StreamCodec<FriendlyByteBuf, ClientDisguiseChoice> STREAM_CODEC =
             CustomPacketPayload.codec(
                     (msg, buf) -> {
-                        buf.writeUtf(msg.pseudonym, 32);
+                        buf.writeUtf(msg.alias, 32);
                         buf.writeUtf(msg.skinHash == null ? "" : msg.skinHash, 128);
                         buf.writeUtf(msg.skinModel == null ? "" : msg.skinModel, 16);
                     },

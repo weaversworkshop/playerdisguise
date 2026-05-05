@@ -30,7 +30,10 @@ dependencies {
 
     // Pure-logic tests don't load the full NeoForge/Minecraft runtime — pin the transitive libs that
     // production code touches (gson, slf4j, mojang LogUtils, jetbrains annotations) directly so the
-    // test JVM has them on its classpath. JUnit + testLogging come from the root build.gradle.
+    // test JVM has them on its classpath.
+    testImplementation platform("org.junit:junit-bom:5.11.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     testImplementation "com.google.code.gson:gson:2.10.1"
     testImplementation "org.slf4j:slf4j-simple:2.0.13"
     testImplementation "com.mojang:logging:1.2.7"
@@ -103,6 +106,15 @@ def targetJavaVersion = 21
 tasks.withType(JavaCompile).configureEach {
     it.options.encoding = "UTF-8"
     it.options.release.set(targetJavaVersion)
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events "failed"
+        showStandardStreams = false
+        exceptionFormat = "full"
+    }
 }
 
 java {

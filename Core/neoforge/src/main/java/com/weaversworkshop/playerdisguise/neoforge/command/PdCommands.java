@@ -23,9 +23,6 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
 
 @EventBusSubscriber(modid = PlayerDisguise.MODID)
@@ -143,7 +140,7 @@ public final class PdCommands {
                 runnerOp,
                 uuid -> opLevelOfUuid(server, uuid),
                 reg::realNameOf,
-                reg::pseudonymOf,
+                reg::aliasOf,
                 reg::historyOf,
                 name);
 

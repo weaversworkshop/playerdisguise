@@ -20,13 +20,13 @@ import java.util.UUID;
 public abstract class PlayerListMixin {
 
     @Inject(method = "getPlayerByName", at = @At("RETURN"), cancellable = true)
-    private void playerdisguise$lookupByPseudonym(String username, CallbackInfoReturnable<ServerPlayer> cir) {
+    private void playerdisguise$lookupByAlias(String username, CallbackInfoReturnable<ServerPlayer> cir) {
         ServerPlayer found = cir.getReturnValue();
         if (found != null) {
             // Vanilla matched by real name. If the player is disguised and the lookup wasn't their alias,
             // hide them from the caller — UNLESS the caller is server console or an op who outranks the target.
             if (AliasRegistry.get().isDisguised(found.getUUID())
-                    && !username.equalsIgnoreCase(AliasRegistry.get().pseudonymOf(found.getUUID()))) {
+                    && !username.equalsIgnoreCase(AliasRegistry.get().aliasOf(found.getUUID()))) {
                 if (!playerdisguise$callerCanSeeRealName(found)) cir.setReturnValue(null);
             }
             return;
@@ -39,13 +39,13 @@ public abstract class PlayerListMixin {
     }
 
     @Inject(method = "getPlayerNamesArray", at = @At("RETURN"), cancellable = true)
-    private void playerdisguise$replaceWithPseudonyms(CallbackInfoReturnable<String[]> cir) {
+    private void playerdisguise$replaceWithAliases(CallbackInfoReturnable<String[]> cir) {
         PlayerList self = (PlayerList) (Object) this;
         List<ServerPlayer> players = self.getPlayers();
         String[] out = new String[players.size()];
         for (int i = 0; i < players.size(); i++) {
             ServerPlayer sp = players.get(i);
-            String alias = AliasRegistry.get().pseudonymOf(sp.getUUID());
+            String alias = AliasRegistry.get().aliasOf(sp.getUUID());
             out[i] = alias != null ? alias : sp.getGameProfile().getName();
         }
         cir.setReturnValue(out);

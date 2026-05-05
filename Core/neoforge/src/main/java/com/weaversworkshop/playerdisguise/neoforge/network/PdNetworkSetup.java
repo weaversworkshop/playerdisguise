@@ -24,7 +24,6 @@ import com.weaversworkshop.playerdisguise.server.ServerDisguiseState;
 import com.weaversworkshop.playerdisguise.server.SkinStore;
 import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerConfigurationPacketListenerImpl;
@@ -79,10 +78,10 @@ public final class PdNetworkSetup {
                 RequestSkinBlob.TYPE, RequestSkinBlob.STREAM_CODEC, PdNetworkSetup::handleClientRequestBlob);
     }
 
-    public static void broadcastUpdate(MinecraftServer server, UUID uuid, String pseudonym, String hash, String model) {
+    public static void broadcastUpdate(MinecraftServer server, UUID uuid, String alias, String hash, String model) {
         PlayerDisguiseUpdate payload = new PlayerDisguiseUpdate(
                 uuid,
-                pseudonym == null ? "" : pseudonym,
+                alias == null ? "" : alias,
                 hash == null ? "" : hash,
                 model == null ? "" : model);
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
@@ -93,7 +92,7 @@ public final class PdNetworkSetup {
     public static void sendBulkSnapshotTo(ServerPlayer recipient) {
         MinecraftServer server = recipient.server;
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-            String alias = AliasRegistry.get().pseudonymOf(p.getUUID());
+            String alias = AliasRegistry.get().aliasOf(p.getUUID());
             if (alias == null) continue;
             ServerDisguiseState.Skin sk = ServerDisguiseState.get().skinFor(p.getUUID());
             String hash = sk == null ? "" : sk.hash();
@@ -117,7 +116,7 @@ public final class PdNetworkSetup {
         String realName = profile.getName();
         AliasRegistry.get().recordTrueName(uuid, realName);
 
-        String requested = payload.pseudonym();
+        String requested = payload.alias();
         // No alias requested: clear any prior state and finish.
         if (requested == null || requested.isBlank()) {
             AliasRegistry.get().release(uuid);
@@ -128,9 +127,9 @@ public final class PdNetworkSetup {
         }
 
         if (AliasContentFilter.get().isBlocked(requested)) {
-            PlayerDisguise.LOGGER.info("Rejected pseudonym '{}' from {} — matched alias blocklist", requested, realName);
+            PlayerDisguise.LOGGER.info("Rejected alias '{}' from {} — matched alias blocklist", requested, realName);
             context.disconnect(Component.literal(
-                    "Pseudonym '" + requested + "' is not allowed on this server. Pick a different one and rejoin."));
+                    "Alias '" + requested + "' is not allowed on this server. Pick a different one and rejoin."));
             return;
         }
 
@@ -144,14 +143,14 @@ public final class PdNetworkSetup {
                     AliasRegistry.get().clearActiveSkin(uuid);
                     ServerDisguiseState.get().clearSkin(uuid);
                     PENDING.remove(listener);
-                    PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' ({}) skin=<none>", realName, requested, result);
+                    PlayerDisguise.LOGGER.info("Player {} claimed alias '{}' ({}) skin=<none>", realName, requested, result);
                     context.finishCurrentTask(AliasClaimTask.TYPE);
                 } else if (SkinStore.get().has(hash)) {
                     // Cache hit — server already has the bytes. Commit immediately.
                     AliasRegistry.get().setActiveSkin(uuid, hash, model);
                     ServerDisguiseState.get().putSkin(uuid, hash, model);
                     PENDING.remove(listener);
-                    PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' ({}) skin={} (cache hit)", realName, requested, result, hash);
+                    PlayerDisguise.LOGGER.info("Player {} claimed alias '{}' ({}) skin={} (cache hit)", realName, requested, result, hash);
                     context.finishCurrentTask(AliasClaimTask.TYPE);
                 } else {
                     // Cache miss — ask client to upload. Stash the expected hash so we can validate it later.
@@ -160,12 +159,12 @@ public final class PdNetworkSetup {
                 }
             }
             case REJECTED_ACTIVE_OTHER -> context.disconnect(Component.literal(
-                    "Pseudonym '" + requested + "' is in use by another player. Pick a different one and rejoin."));
+                    "Alias '" + requested + "' is in use by another player. Pick a different one and rejoin."));
             case REJECTED_COOLDOWN_OTHER -> context.disconnect(Component.literal(
-                    "Pseudonym '" + requested + "' is on cooldown for another player. Pick a different one and rejoin."));
+                    "Alias '" + requested + "' is on cooldown for another player. Pick a different one and rejoin."));
             case REJECTED_REAL_NAME -> context.disconnect(Component.literal(
-                    "Pseudonym '" + requested + "' is reserved as another player's real name."));
-            case INVALID -> context.disconnect(Component.literal("Invalid pseudonym."));
+                    "Alias '" + requested + "' is reserved as another player's real name."));
+            case INVALID -> context.disconnect(Component.literal("Invalid alias."));
         }
     }
 
@@ -198,7 +197,7 @@ public final class PdNetworkSetup {
         PENDING.remove(listener);
         SkinStore.get().enforceCap();
         String name = listener.playerProfile() == null ? "?" : listener.playerProfile().getName();
-        PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' skin={} (uploaded)", name, pending.alias, pending.hash);
+        PlayerDisguise.LOGGER.info("Player {} claimed alias '{}' skin={} (uploaded)", name, pending.alias, pending.hash);
         context.finishCurrentTask(AliasClaimTask.TYPE);
     }
 
@@ -210,7 +209,7 @@ public final class PdNetworkSetup {
         AliasRegistry.get().clearActiveSkin(pending.uuid);
         ServerDisguiseState.get().clearSkin(pending.uuid);
         String name = listener.playerProfile() == null ? "?" : listener.playerProfile().getName();
-        PlayerDisguise.LOGGER.info("Player {} claimed pseudonym '{}' skin=<exposed by user choice>", name, pending.alias);
+        PlayerDisguise.LOGGER.info("Player {} claimed alias '{}' skin=<exposed by user choice>", name, pending.alias);
         context.finishCurrentTask(AliasClaimTask.TYPE);
     }
 
@@ -264,10 +263,10 @@ public final class PdNetworkSetup {
 
     private static void handleUpdateOnClient(PlayerDisguiseUpdate payload, IPayloadContext context) {
         context.enqueueWork(() -> {
-            if (payload.pseudonym() == null || payload.pseudonym().isBlank()) {
+            if (payload.alias() == null || payload.alias().isBlank()) {
                 ClientDisguiseHandler.applyClear(payload.uuid());
             } else {
-                ClientDisguiseHandler.applyDisguise(payload.uuid(), payload.pseudonym(), payload.skinHash(), payload.skinModel());
+                ClientDisguiseHandler.applyDisguise(payload.uuid(), payload.alias(), payload.skinHash(), payload.skinModel());
             }
         });
     }

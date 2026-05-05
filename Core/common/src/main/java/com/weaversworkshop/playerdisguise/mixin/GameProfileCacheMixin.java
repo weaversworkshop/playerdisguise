@@ -16,7 +16,7 @@ public abstract class GameProfileCacheMixin {
 
     @Inject(method = "get(Ljava/util/UUID;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
     private void playerdisguise$getByUuid(UUID uuid, CallbackInfoReturnable<Optional<GameProfile>> cir) {
-        String alias = AliasRegistry.get().pseudonymOf(uuid);
+        String alias = AliasRegistry.get().aliasOf(uuid);
         if (alias == null) return;
         cir.setReturnValue(Optional.of(new GameProfile(uuid, alias)));
     }

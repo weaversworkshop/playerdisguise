@@ -17,7 +17,7 @@ import java.util.List;
 @Mixin(ClientSuggestionProvider.class)
 public abstract class ClientSuggestionProviderMixin {
     @Inject(method = "getOnlinePlayerNames", at = @At("RETURN"), cancellable = true)
-    private void playerdisguise$replaceWithPseudonyms(CallbackInfoReturnable<Collection<String>> cir) {
+    private void playerdisguise$replaceWithAliases(CallbackInfoReturnable<Collection<String>> cir) {
         ClientPacketListener conn = Minecraft.getInstance().getConnection();
         if (conn == null) return;
         List<String> out = new ArrayList<>();

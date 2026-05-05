@@ -26,8 +26,13 @@ Scope reminder: iterate on NeoForge + common only. `Core/fabric` is parked.
 - Visual disguise mixins (client): `PlayerInfo#getSkin`, `PlayerInfo#getTabListDisplayName`, `Player#getName`, `Player#getDisplayName`, `ClientSuggestionProvider#getOnlinePlayerNames`. Disguise applies to the local player too (via the same broadcast path).
 - Server-side name rewriting via `Player#getName`/`getDisplayName` mixin → chat sender, death messages, join/leave broadcasts use the alias. Server console / logs intentionally use real names (per design note).
 - Command resolution mixins (server): `PlayerList#getPlayerByName` resolves pseudonyms; `PlayerList#getPlayerNamesArray` returns pseudonyms (auto-complete suggests aliases only). `/tp`, `/give`, `/msg`, `/list`, etc. all work with pseudonyms.
-- Privacy: `getPlayerByName` returns `null` when the matched player is currently disguised and the lookup string isn't their alias (real names are not addressable while disguised). Exception: lookup commands (see below) must bypass this block.
+- Privacy: `getPlayerByName` returns `null` when the matched player is currently disguised and the lookup string isn't their alias (real names are not addressable while disguised). Exceptions, gated via a `CommandSourceStack` thread-local pushed by a `Commands#performCommand` mixin: server console / command blocks (no entity source) always bypass the block; an op bypasses when `runner.opLevel >= target.opLevel` (and runner is at least op level 1). Lookup commands (`/whois`, `/namehistory`) resolve directly through `AliasRegistry` and don't go through this path.
 - Vanilla-client compat: `AliasClaimTask` is only registered when the client has our channel (`hasChannel` check). Vanilla clients pass through config phase untouched and appear normally with their real names.
+
+### Phase 3 — lookup commands + name history + op-aware real-name targeting
+- **`/whois <name>`** (name-anchored, multi-row) and **`/namehistory <name>`** (person-anchored, single-target) registered via `RegisterCommandsEvent`. Both resolve directly through `AliasRegistry`, bypassing the `getPlayerByName` privacy block. Per-row op-level visibility: `/whois` silently omits outranked rows; `/namehistory` lies (current alias shown as real name, empty history) when target outranks runner. Non-entity command sources (console / command blocks) treated as op level 4. Roles intentionally complementary: `/whois` answers "who has held this name?", `/namehistory` answers "what names has this player held?".
+- **Persistent name history** in `AliasRegistry` via `NameInterval(alias, startMs, endMs, realName)` records, persisted under a new `history` array in `aliases.json` (`endMs == 0` = open). Continuous-timeline invariant: at any moment a UUID has at most one open interval; real-name intervals fill the gaps between alias intervals. Hooks: `putActive` (open alias), `releaseToCooldownInternal` (close alias + open real-name), `forceClearActive` (same), `recordTrueName` (open real-name on first encounter — covers vanilla-client first login). Sub-100ms intervals dropped at close time to absorb the spurious zero-duration real-name interval produced by `claim()`'s switch sequence.
+- **Op-aware real-name targeting** for vanilla commands routing through `EntityArgument` (`/tp`, `/tell`, `/kick`, `/give`, `/list`, etc.). New `CommandContextHolder` (thread-local `CommandSourceStack` stack) populated by a `Commands#performCommand` mixin. `PlayerListMixin#getPlayerByName` consults it: server console / command blocks always bypass the disguise privacy-block; ops bypass when `runner.opLevel >= target.opLevel`. Non-ops still see the alias-only world. **Note:** `/ban`, `/pardon`, `/op`, `/deop`, `/whitelist` go through `GameProfileArgument` → `GameProfileCache#get(String)`, which is intentionally NOT alias-aware — moderation policy is to use `/whois` + `/namehistory` to find the real name, then ban normally (see `memory/project_moderation_policy.md`).
 
 ---
 
@@ -40,18 +45,6 @@ Scope reminder: iterate on NeoForge + common only. `Core/fabric` is parked.
 ### Documentation
 - README: disclose that the mod transmits user-supplied skin PNGs and pseudonyms to servers running this mod (Modrinth rule 1.11).
 - In-game first-run notice covering the same disclosure.
-
-### Lookup commands (`/whois`, `/namehistory`)
-Spec is locked in (see `memory/project_lookup_commands.md`). Both commands operate on a name index; build them so they bypass the `getPlayerByName` privacy block (resolve via `AliasRegistry` + a new historical name index, not via `EntityArgument` / vanilla name lookup).
-
-- **`/whois <name>`** — multi-row: every player who has ever held that name (current or past), one row per holder. Each row: real Minecraft name + time interval(s) held (`<start> to <end>` or `<start> to now`).
-- **`/namehistory <name>`** — single-target: real Minecraft name at top, then that player's pseudonym history sorted oldest→newest. Each row shows the time interval the alias was held.
-- Target argument resolves any string: current alias, prior alias, or real name. First match wins; tie-break: current-alias > most-recent-historical-use.
-- **Visibility (op-aware, per-row):**
-  - `/namehistory <admin>` when `runner.opLevel < target.opLevel` → lie: show target's current alias as if it were the real name, empty history. No "hidden" indicator (would leak the outrank).
-  - `/whois <name>` → silently omit rows where `runner.opLevel < holder.opLevel`. Partial result with no indication.
-  - Non-op vs. non-op (`0 >= 0`) → truth.
-- Required new state: a persistent **historical name index** mapping each UUID to all aliases they've ever held with `(start, end)` intervals. Live alias entries have `end=null` (open). Update on every claim/release. Persist alongside `aliases.json` under `<world>/playerdisguise/`.
 
 ### Quality-of-life (deferred)
 - **Singleplayer mid-session profile hot-swap.** TODO is locked-per-session everywhere; SP could allow swapping without re-launching the world.

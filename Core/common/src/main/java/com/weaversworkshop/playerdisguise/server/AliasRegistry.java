@@ -30,10 +30,21 @@ public final class AliasRegistry {
     }
 
     public record CooldownEntry(String alias, long expiryMs) {}
-    private record SaveFile(List<ActiveEntry> active, List<SavedCooldown> cooldown, List<TrueNameEntry> trueNames) {}
+    /**
+     * A single interval during which a UUID held a name (alias OR real). {@code endMs == 0L} means still active.
+     * {@code realName} is true for periods the player held their real Mojang name (i.e., undisguised).
+     */
+    public record NameInterval(String alias, long startMs, long endMs, boolean realName) {
+        public boolean isOpen() { return endMs == 0L; }
+    }
+    private record SaveFile(List<ActiveEntry> active, List<SavedCooldown> cooldown, List<TrueNameEntry> trueNames, List<HistoryEntry> history) {}
     private record ActiveEntry(String uuid, String alias) {}
     private record SavedCooldown(String uuid, String alias, long expiryMs) {}
     private record TrueNameEntry(String uuid, String realName) {}
+    private record HistoryEntry(String uuid, String alias, long startMs, long endMs, boolean realName) {}
+
+    /** Intervals shorter than this on close are spurious (config-phase open-then-close in the same call) and dropped. */
+    private static final long SHORT_INTERVAL_DROP_MS = 100L;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final AliasRegistry INSTANCE = new AliasRegistry();
@@ -45,6 +56,8 @@ public final class AliasRegistry {
     private final Map<String, UUID> cooldownByAliasLc = new ConcurrentHashMap<>();
     private final Map<UUID, String> trueNameByUuid = new ConcurrentHashMap<>();
     private final Map<String, UUID> trueNameByLc = new ConcurrentHashMap<>();
+    // Persistent historical alias index: every alias every UUID has ever held, with intervals.
+    private final Map<UUID, List<NameInterval>> historyByUuid = new ConcurrentHashMap<>();
 
     private long cooldownMs = DEFAULT_COOLDOWN_MS;
 
@@ -106,7 +119,12 @@ public final class AliasRegistry {
 
     public synchronized void forceClearActive(UUID uuid) {
         String alias = activeByUuid.remove(uuid);
-        if (alias != null) activeByAliasLc.remove(alias.toLowerCase(Locale.ROOT));
+        if (alias != null) {
+            activeByAliasLc.remove(alias.toLowerCase(Locale.ROOT));
+            closeOpenInterval(uuid);
+            String realName = trueNameByUuid.get(uuid);
+            if (realName != null) openInterval(uuid, realName, true);
+        }
     }
 
     public synchronized void recordTrueName(UUID uuid, String realName) {
@@ -116,6 +134,10 @@ public final class AliasRegistry {
             trueNameByLc.remove(prev.toLowerCase(Locale.ROOT));
         }
         trueNameByLc.put(realName.toLowerCase(Locale.ROOT), uuid);
+        // First-encounter (or vanilla-client) bookkeeping: ensure the player's identity is represented in
+        // history. If they're currently undisguised and have nothing open, open a real-name interval.
+        // No-op when an interval is already open or an alias is currently active.
+        if (!activeByUuid.containsKey(uuid)) openInterval(uuid, realName, true);
     }
 
     public synchronized List<UUID> takeAliasesMatchingRealName(String realName, UUID exempt) {
@@ -148,22 +170,63 @@ public final class AliasRegistry {
         cooldownByAliasLc.clear();
         trueNameByUuid.clear();
         trueNameByLc.clear();
+        historyByUuid.clear();
     }
 
     private void putActive(UUID uuid, String alias) {
         activeByUuid.put(uuid, alias);
         activeByAliasLc.put(alias.toLowerCase(Locale.ROOT), uuid);
+        // Close whatever (real-name or prior alias) was open and open this alias's interval.
+        closeOpenInterval(uuid);
+        openInterval(uuid, alias, false);
     }
 
     private void releaseToCooldownInternal(UUID uuid) {
         String alias = activeByUuid.remove(uuid);
         if (alias == null) return;
         activeByAliasLc.remove(alias.toLowerCase(Locale.ROOT));
+        closeOpenInterval(uuid);
+        // Player is now back to their real name — open a real-name interval to fill the gap.
+        // (If putActive runs immediately after this — e.g. claim() switch path — that interval will be
+        // dropped as a zero-duration spurious open/close by closeOpenInterval.)
+        String realName = trueNameByUuid.get(uuid);
+        if (realName != null) openInterval(uuid, realName, true);
         CooldownEntry prior = cooldownByUuid.remove(uuid);
         if (prior != null) cooldownByAliasLc.remove(prior.alias.toLowerCase(Locale.ROOT));
         long expiry = System.currentTimeMillis() + cooldownMs;
         cooldownByUuid.put(uuid, new CooldownEntry(alias, expiry));
         cooldownByAliasLc.put(alias.toLowerCase(Locale.ROOT), uuid);
+    }
+
+    /** Opens a new interval for {@code uuid} only if no other interval is currently open. */
+    private void openInterval(UUID uuid, String alias, boolean realName) {
+        List<NameInterval> list = historyByUuid.computeIfAbsent(uuid, k -> new ArrayList<>());
+        for (int i = list.size() - 1; i >= 0; i--) {
+            if (list.get(i).isOpen()) return; // something already open — don't stack
+        }
+        list.add(new NameInterval(alias, System.currentTimeMillis(), 0L, realName));
+    }
+
+    /**
+     * Closes whichever interval is currently open for {@code uuid} (at most one is). If the open interval
+     * is shorter than {@link #SHORT_INTERVAL_DROP_MS} it is removed entirely rather than recorded — this
+     * suppresses the spurious zero-duration real-name interval produced by the
+     * {@code releaseToCooldownInternal → putActive} sequence inside {@link #claim}.
+     */
+    private void closeOpenInterval(UUID uuid) {
+        List<NameInterval> list = historyByUuid.get(uuid);
+        if (list == null) return;
+        long now = System.currentTimeMillis();
+        for (int i = list.size() - 1; i >= 0; i--) {
+            NameInterval ni = list.get(i);
+            if (!ni.isOpen()) continue;
+            if (now - ni.startMs < SHORT_INTERVAL_DROP_MS) {
+                list.remove(i);
+            } else {
+                list.set(i, new NameInterval(ni.alias, ni.startMs, now, ni.realName));
+            }
+            return;
+        }
     }
 
     public synchronized void load(Path file) {
@@ -188,6 +251,14 @@ public final class AliasRegistry {
                 if (e == null || e.uuid == null || e.realName == null) continue;
                 try { recordTrueName(UUID.fromString(e.uuid), e.realName); } catch (Exception ignored) {}
             }
+            if (sf.history != null) for (HistoryEntry e : sf.history) {
+                if (e == null || e.uuid == null || e.alias == null) continue;
+                try {
+                    UUID u = UUID.fromString(e.uuid);
+                    historyByUuid.computeIfAbsent(u, k -> new ArrayList<>())
+                            .add(new NameInterval(e.alias, e.startMs, e.endMs, e.realName));
+                } catch (Exception ignored) {}
+            }
             int pruned = pruneExpired();
             PlayerDisguise.LOGGER.info("AliasRegistry loaded: {} active, {} cooldown, {} true names ({} expired pruned)",
                     activeByUuid.size(), cooldownByUuid.size(), trueNameByUuid.size(), pruned);
@@ -205,7 +276,12 @@ public final class AliasRegistry {
             for (var e : cooldownByUuid.entrySet()) cooldown.add(new SavedCooldown(e.getKey().toString(), e.getValue().alias, e.getValue().expiryMs));
             List<TrueNameEntry> trueNames = new ArrayList<>();
             for (var e : trueNameByUuid.entrySet()) trueNames.add(new TrueNameEntry(e.getKey().toString(), e.getValue()));
-            Files.writeString(file, GSON.toJson(new SaveFile(active, cooldown, trueNames)));
+            List<HistoryEntry> history = new ArrayList<>();
+            for (var e : historyByUuid.entrySet()) {
+                String uuidStr = e.getKey().toString();
+                for (NameInterval ni : e.getValue()) history.add(new HistoryEntry(uuidStr, ni.alias, ni.startMs, ni.endMs, ni.realName));
+            }
+            Files.writeString(file, GSON.toJson(new SaveFile(active, cooldown, trueNames, history)));
         } catch (IOException e) {
             PlayerDisguise.LOGGER.error("Failed to save alias registry to {}", file, e);
         }
@@ -213,5 +289,65 @@ public final class AliasRegistry {
 
     public synchronized List<String> activeAliasesSnapshot() {
         return Collections.unmodifiableList(new ArrayList<>(activeByUuid.values()));
+    }
+
+    public @Nullable String realNameOf(UUID uuid) {
+        return trueNameByUuid.get(uuid);
+    }
+
+    public @Nullable UUID uuidByRealName(String name) {
+        if (name == null) return null;
+        return trueNameByLc.get(name.toLowerCase(Locale.ROOT));
+    }
+
+    /** Full alias history for a UUID, sorted oldest→newest. Open intervals (still active) appear last with {@code endMs == 0}. */
+    public synchronized List<NameInterval> historyOf(UUID uuid) {
+        List<NameInterval> list = historyByUuid.get(uuid);
+        if (list == null || list.isEmpty()) return List.of();
+        List<NameInterval> copy = new ArrayList<>(list);
+        copy.sort((a, b) -> Long.compare(a.startMs, b.startMs));
+        return copy;
+    }
+
+    /** Holders of a given alias (case-insensitive): every UUID who has ever held it, with the matching intervals. */
+    public synchronized Map<UUID, List<NameInterval>> holdersOfAlias(String alias) {
+        if (alias == null) return Map.of();
+        String lc = alias.toLowerCase(Locale.ROOT);
+        Map<UUID, List<NameInterval>> result = new java.util.LinkedHashMap<>();
+        for (var entry : historyByUuid.entrySet()) {
+            List<NameInterval> matched = new ArrayList<>();
+            for (NameInterval ni : entry.getValue()) {
+                if (ni.alias.toLowerCase(Locale.ROOT).equals(lc)) matched.add(ni);
+            }
+            if (!matched.isEmpty()) {
+                matched.sort((a, b) -> Long.compare(a.startMs, b.startMs));
+                result.put(entry.getKey(), matched);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Resolve a name to a target UUID for /namehistory.
+     * Priority: current alias > current real name > most-recent historical alias use.
+     */
+    public synchronized @Nullable UUID resolveTarget(String name) {
+        if (name == null || name.isBlank()) return null;
+        String lc = name.toLowerCase(Locale.ROOT);
+        UUID byActive = activeByAliasLc.get(lc);
+        if (byActive != null) return byActive;
+        UUID byReal = trueNameByLc.get(lc);
+        if (byReal != null) return byReal;
+        UUID best = null;
+        long bestEnd = Long.MIN_VALUE;
+        long now = System.currentTimeMillis();
+        for (var entry : historyByUuid.entrySet()) {
+            for (NameInterval ni : entry.getValue()) {
+                if (!ni.alias.toLowerCase(Locale.ROOT).equals(lc)) continue;
+                long e = ni.isOpen() ? now : ni.endMs;
+                if (e > bestEnd) { bestEnd = e; best = entry.getKey(); }
+            }
+        }
+        return best;
     }
 }

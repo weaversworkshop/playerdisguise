@@ -8,7 +8,10 @@ version = "${version}"
 displayName = "Player Disguise"
 authors = "Weaver's Workshop"
 description = '''
-Disguise yourself as other players.
+Pick a name. Pick a skin. Become anybody.
+
+Player Disguise lets you assume an alias and custom skin while playing. Chat, tab list, nameplate, and visuals update for everyone on the server. Ops keep full visibility through /whois and /namehistory for moderation.
+Skins stay server-side with persistent claims, cooldowns on release, and zero outbound traffic.
 '''
 
 [[accessTransformers]]

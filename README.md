@@ -12,10 +12,10 @@
 
 # Project Overview
 
-Player Disguise lets players take on the name and skin of another player, with server-authoritative
-identity tracking so admins can always see who is really behind a disguise. Disguises persist across
-logout, claimed aliases are reserved per-player, and a cooldown protects recently-released names from
-being snatched.
+Player Disguise lets players present a custom alias and skin to others on the server for roleplay,
+character-driven worlds, or just a fresh identity. Server-authoritative tracking means admins can
+always see who is really behind a disguise. Disguises persist across logout, claimed aliases are
+reserved per-player, and a cooldown protects recently-released names from being snatched.
 
 The mod ships with a set of admin tools (`/whois`, `/namehistory`) that surface the full alias history
 for moderation, and integrates with popular client/server mods so disguises render correctly in chat,
